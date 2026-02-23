@@ -152,31 +152,11 @@ variant-calling-gatk-pipeline-best-practice-from-scratch/
 
 ## 🧬 Pipeline Overview
 
-This implementation follows **GATK germline variant calling best practices** (16 steps):
+This implementation follows **GATK germline variant calling best practices** (16 steps from QC → Alignment → BQSR → Variant Calling → Annotation → Statistics).
 
-### Pre-processing (Steps 1-8)
-1. **FastQC** - Quality control metrics
-2. **Trim Galore** - Adapter trimming
-3. **BWA-MEM** - Read alignment to reference genome
-4. **SAMtools sort** - Sort BAM by coordinate
-5. **GATK MarkDuplicates** - Mark PCR/optical duplicates
-6. **GATK BaseRecalibrator** - Model systematic errors (BQSR)
-7. **GATK ApplyBQSR** - Apply recalibration
-8. **GATK CollectMetrics** - Alignment QC + insert size histogram
-
-### Variant Calling (Steps 9-10)
-9. **GATK HaplotypeCaller** - Call variants (GVCF mode)
-10. **GATK GenotypeGVCFs** - Joint genotyping across samples
-
-### Variant Filtering (Steps 11-13)
-11. **SelectVariants + VariantFiltration (SNPs)** - Filter SNPs (QUAL, QD, FS, SOR, MQ, MQRankSum, ReadPosRankSum)
-12. **SelectVariants + VariantFiltration (Indels)** - Filter indels (QUAL, QD, FS, ReadPosRankSum)
-13. **GATK MergeVcfs** - Merge filtered SNPs + indels
-
-### Annotation & Statistics (Steps 14-16)
-14. **SnpEff** - Functional annotation (gene, transcript, effect)
-15. **bcftools stats** - Variant statistics (raw/filtered counts)
-16. **Visualization** - BED file + bedGraph coverage track
+**For detailed pipeline steps and technical specifications, see:**
+- 📖 [Bash Implementation README](workflows/bash/README.md) - Educational single-sample workflow
+- 📖 [Nextflow Implementation README](workflows/nextflow/Readme.md) - Production multi-sample workflow with full technical details
 
 ## 🎓 Learning Resources
 
@@ -189,6 +169,7 @@ This repository is accompanied by comprehensive blog posts:
   - Tool installation with Pixi
   - Performance benchmarking
   - Production best practices
+  - 📖 See also: [Bash Implementation README](workflows/bash/README.md)
 
 - **[Part 2: Migrating GATK Bash to Nextflow with MD5 Validation](https://riverxdata.github.io/river-docs/blog/gatk-bash-nextflow-migration-md5-validation-part2)**
   - Complete 16-step Nextflow implementation
@@ -196,12 +177,18 @@ This repository is accompanied by comprehensive blog posts:
   - Container strategy (BioContainers + Broad Institute)
   - Multi-sample parallelization
   - Troubleshooting GATK R dependency issues
+  - 📖 See also: [Nextflow Implementation README](workflows/nextflow/Readme.md)
 
 - **Part 3: Production-Scale Deployment** (Coming Soon)
   - SLURM/HPC integration
   - 1000 Genomes Project validation
   - 100+ sample benchmarking
   - Cloud deployment strategies
+
+### Implementation-Specific Documentation
+
+- 📖 [Bash Implementation README](workflows/bash/README.md) - Educational single-sample workflow
+- 📖 [Nextflow Implementation README](workflows/nextflow/Readme.md) - Production multi-sample workflow with complete technical details
 
 ### Key Insights
 
@@ -219,66 +206,30 @@ This repository is accompanied by comprehensive blog posts:
 
 ## 🔬 Validation & Scientific Equivalence
 
-We use **MD5 checksums** to validate that Bash and Nextflow produce scientifically equivalent results:
-
-```bash
-# Run validation script
-pixi run bash scripts/validate_migration.sh
-```
+We use **MD5 checksums** to validate that Bash and Nextflow produce scientifically equivalent results.
 
 **Key findings:**
 - ✅ **Variant statistics match exactly**: Raw SNP/indel counts identical
 - ⚠️ **MD5 checksums differ**: Expected due to timestamps in BAM/VCF headers
 - ✅ **Scientific content equivalent**: Same quality scores, alignments, variant calls
 
-**Why MD5s differ:**
-- Timestamps embedded in BAM/VCF headers
-- Execution environment metadata (pixi vs Singularity)
-- Tool runtime information
-- **This is normal and acceptable** - scientific results are identical
+For detailed validation methodology and results, see [Nextflow README - Validation Section](workflows/nextflow/Readme.md#validation-against-bash).
 
 ## 🛠️ Tool Versions
 
-All tools installed via Pixi (locked in `pixi.lock`):
-
-| Tool | Version | Purpose |
-|------|---------|---------|
-| **BWA** | 0.7.19-r1273 | Read alignment |
-| **SAMtools** | 1.23 | BAM manipulation |
-| **GATK** | 4.6.2.0 | Variant calling + BQSR |
-| **FastQC** | 0.12.1 | Quality control |
-| **Trim Galore** | 0.6.10 | Adapter trimming |
-| **bcftools** | 1.17 | VCF manipulation |
-| **bedtools** | 2.31.0 | Coverage tracks |
-| **SnpEff** | 5.1 | Functional annotation |
-
-**Nextflow containers:**
-- `quay.io/biocontainers/*` (BioContainers for most tools)
-- `broadinstitute/gatk:4.4.0.0` (for GATK CollectMetrics - includes R runtime)
+All tools are installed via Pixi (locked in `pixi.lock`). For complete tool versions, container images, and technical specifications, see:
+- 📖 [Nextflow Implementation README - Tool Versions & Containers](workflows/nextflow/Readme.md#tool-versions--container-strategy)
 
 ## 🐛 Troubleshooting
 
-### Common Issues
+For detailed troubleshooting guides, see:
+- 📖 [Nextflow Troubleshooting Section](workflows/nextflow/Readme.md#troubleshooting) - Container issues, memory errors, validation
+- 📖 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) - Common issues and solutions
 
-**Issue 1: GATK CollectMetrics fails with "RScript not found"**
-- **Cause**: Standard GATK containers lack R runtime for PDF histogram generation
-- **Solution**: Using `broadinstitute/gatk:4.4.0.0` which includes R 4.2.x
-- **Details**: See [Part 2 blog post, Section 10.3](https://riverxdata.github.io/river-docs/blog/gatk-bash-nextflow-migration-md5-validation-part2)
-
-**Issue 2: BWA index files not found**
-- **Cause**: BWA requires all 5 index files (`.amb`, `.ann`, `.bwt`, `.pac`, `.sa`) staged in work directory
-- **Solution**: Channel explicitly lists all index files in `main.nf`
-
-**Issue 3: SnpEff output missing `.gz` compression**
-- **Cause**: SnpEff container lacks htslib tools (bgzip/tabix)
-- **Solution**: Output uncompressed VCF instead of `.vcf.gz`
-
-**Issue 4: Zero variants in output VCF**
-- **Cause**: Test data is chr22 subset with low coverage
-- **Expected**: This is normal for test data
-- **Validation**: Check variant statistics match between bash/nextflow
-
-For more issues, see `docs/TROUBLESHOOTING.md`
+**Quick Tips:**
+- Use `-resume` flag to restart from failures without rerunning completed steps
+- Check `work/` directory for detailed logs when a process fails
+- Ensure Singularity/Apptainer version is ≥3.5 for container support
 
 ## 🚀 Next Steps & Roadmap
 
