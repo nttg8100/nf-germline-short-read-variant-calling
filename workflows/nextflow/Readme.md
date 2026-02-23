@@ -2,6 +2,17 @@
 
 This directory contains the **Nextflow DSL2 implementation** of the 16-step GATK germline variant calling workflow. This is a production-ready, scalable pipeline with full container support and multi-sample parallelization.
 
+## What's New (February 2026)
+
+This implementation includes significant optimizations over the baseline bash workflow:
+
+- ✅ **fastp** replaces FastQC + Trim Galore (1.5-2x faster, single-pass QC/trimming)
+- ✅ **BWA-MEM2** replaces BWA-MEM (2-3x faster alignment with AVX2 optimization)
+- ✅ **GATK Spark** for 3 steps: MarkDuplicates, BaseRecalibrator, ApplyBQSR (1.3-1.5x faster)
+- ✅ **Multi-lane support** - Automatically process and merge multiple sequencing lanes per sample
+- ✅ **Value channel reuse** - Eliminates ~25 duplicate `.collect()` calls for reference files
+- ✅ **Centralized configuration** - All `publishDir` settings in `conf/modules.config`
+
 ## Purpose
 
 ✅ **Production workloads** - Process 100+ samples in parallel  
@@ -70,6 +81,36 @@ nextflow run main.nf -profile singularity --input samplesheet.csv -resume
 ```
 
 **Runtime**: 3m 26s for 3 samples (3.2x faster than bash!)
+
+**Multi-lane support**: The pipeline automatically processes each lane independently through Steps 1-3 (fastp, BWA-MEM2, sort), then merges all lanes per sample at Step 4 (samtools merge). Subsequent steps operate on merged per-sample BAMs.
+
+## Complete Pipeline Overview
+
+This pipeline implements the **GATK germline variant calling best practices** (16 steps) with key optimizations:
+
+### Pre-processing (Steps 1-8)
+1. **fastp** - All-in-one QC, adapter trimming, and filtering (replaces FastQC + Trim Galore)
+2. **BWA-MEM2** - Read alignment with AVX2 optimization (2-3x faster than BWA)
+3. **SAMtools sort** - Sort BAM by coordinate (per-lane processing)
+4. **SAMtools merge** - Merge multi-lane BAMs per sample
+5. **GATK Spark MarkDuplicates** - Mark PCR/optical duplicates (multi-threaded)
+6. **GATK Spark BaseRecalibrator** - Model systematic errors (BQSR, multi-threaded)
+7. **GATK Spark ApplyBQSR** - Apply recalibration (multi-threaded)
+8. **GATK CollectMetrics** - Alignment QC + insert size histogram
+
+### Variant Calling (Steps 9-10)
+9. **GATK HaplotypeCaller** - Call variants (GVCF mode)
+10. **GATK GenotypeGVCFs** - Joint genotyping across samples
+
+### Variant Filtering (Steps 11-13)
+11. **SelectVariants + VariantFiltration (SNPs)** - Filter SNPs (QUAL, QD, FS, SOR, MQ, MQRankSum, ReadPosRankSum)
+12. **SelectVariants + VariantFiltration (Indels)** - Filter indels (QUAL, QD, FS, ReadPosRankSum)
+13. **GATK MergeVcfs** - Merge filtered SNPs + indels
+
+### Annotation & Statistics (Steps 14-16)
+14. **SnpEff** - Functional annotation (gene, transcript, effect)
+15. **bcftools stats** - Variant statistics (raw/filtered counts)
+16. **Visualization** - BED file + bedGraph coverage track
 
 ## Pipeline Architecture
 
@@ -277,27 +318,32 @@ results_nextflow/
     └── sample3/
 ```
 
-## Container Strategy
+## Tool Versions & Container Strategy
 
 ### BioContainers (Most Tools)
 
-```groovy
-container 'quay.io/biocontainers/fastqc:0.12.1--hdfd78af_0'
-container 'quay.io/biocontainers/bwa:0.7.18--he4a0461_2'
-container 'quay.io/biocontainers/gatk4:4.4.0.0--py36hdfd78af_0'
-container 'quay.io/biocontainers/bcftools:1.17--haef29d1_0'
-```
+| Tool | Version | Container | Purpose |
+|------|---------|-----------|---------|
+| **fastp** | 0.23.4 | `quay.io/biocontainers/fastp:0.23.4--h5f740d0_3` | QC, trimming, filtering |
+| **BWA-MEM2** | 2.2.1 | `community.wave.seqera.io/library/bwa-mem2:2.2.1--...` | Read alignment (AVX2) |
+| **SAMtools** | 1.17 | `quay.io/biocontainers/samtools:1.17--h00cdaf9_0` | BAM manipulation |
+| **GATK** | 4.4.0.0 | `quay.io/biocontainers/gatk4:4.4.0.0--py36hdfd78af_0` | Variant calling + BQSR |
+| **bcftools** | 1.17 | `quay.io/biocontainers/bcftools:1.17--haef29d1_0` | VCF manipulation |
+| **bedtools** | 2.31.0 | `quay.io/biocontainers/bedtools:2.31.0--hf5e1c6e_2` | Coverage tracks |
+| **SnpEff** | 5.1 | `quay.io/biocontainers/snpeff:5.1--hdfd78af_2` | Functional annotation |
 
 ### Broad Institute GATK (Step 8 - CollectMetrics)
 
-**Issue**: Standard BioContainers GATK lacks R runtime for PDF histogram generation.
 
-**Solution**: Use Broad's official image:
+
+### GATK Spark Containers (Steps 5-7)
+
+For multi-threaded BQSR processing:
 ```groovy
-container 'broadinstitute/gatk:4.4.0.0'  // Includes R 4.2.x + plotting libraries
+container 'quay.io/biocontainers/gatk4-spark:4.4.0.0--hdfd78af_0'
 ```
 
-**Details**: See [Part 2 blog post, Section 10.3, Challenge #5](https://riverxdata.github.io/river-docs/blog/gatk-bash-nextflow-migration-md5-validation-part2)
+These containers include Apache Spark for parallel processing of MarkDuplicates, BaseRecalibrator, and ApplyBQSR steps.
 
 ### Container Cache
 
@@ -332,6 +378,16 @@ rm -rf $HOME/.singularity/cache/*
 | **CPU hours** | 1.3 |
 | **Output files** | 279 (93 × 3) |
 | **Speedup vs Bash** | **3.2x faster** (11 min → 3.4 min) |
+
+### Key Optimizations Impact
+
+| Optimization | Speedup | Notes |
+|--------------|---------|-------|
+| **BWA-MEM2 (vs BWA)** | 2-3x faster | AVX2 SIMD instructions |
+| **fastp (vs FastQC + Trim Galore)** | 1.5-2x faster | Single-pass processing |
+| **GATK Spark (3 steps)** | 1.3-1.5x faster | Multi-threaded MarkDuplicates, BQSR |
+| **Value channel reuse** | Reduced overhead | Eliminates ~25 duplicate `.collect()` calls |
+| **Lane-level parallelization** | Scales linearly | Multiple lanes processed simultaneously |
 
 ### Parallelization Analysis
 
@@ -408,18 +464,19 @@ rm -rf $HOME/.singularity/cache/*
 nextflow run main.nf -profile singularity,test -resume
 ```
 
-### Issue 4: "No such file or directory" for BWA index files
+### Issue 4: "No such file or directory" for BWA-MEM2 index files
 
-**Cause**: BWA requires all 5 index files (`.amb`, `.ann`, `.bwt`, `.pac`, `.sa`) staged in work directory.
+**Cause**: BWA-MEM2 requires all 8 index files (`.0123`, `.amb`, `.ann`, `.bwt.2bit.64`, `.pac`, `.alt`, plus original `.fasta` and `.fai`) staged in work directory.
 
 **Solution**: `main.nf` explicitly channels all index files:
 ```groovy
-bwa_index_ch = Channel.of([
+bwamem2_index_ch = Channel.of([
+    file("${params.reference}.0123"),
     file("${params.reference}.amb"),
     file("${params.reference}.ann"),
-    file("${params.reference}.bwt"),
+    file("${params.reference}.bwt.2bit.64"),
     file("${params.reference}.pac"),
-    file("${params.reference}.sa")
+    file("${params.reference}.alt")
 ]).collect()
 ```
 
@@ -544,11 +601,12 @@ nextflow run main.nf -profile singularity,test -entry VARIANT_CALLING
 
 ## References
 
+- **Main repository**: [../../README.md](../../README.md) - Project overview, installation, quick start
+- **Bash implementation**: [../bash/README.md](../bash/README.md) - Educational single-sample workflow
 - **Blog post**: [Part 2 - Migrating GATK Bash to Nextflow with MD5 Validation](https://riverxdata.github.io/river-docs/blog/gatk-bash-nextflow-migration-md5-validation-part2)
 - **Nextflow docs**: https://www.nextflow.io/docs/latest/
 - **nf-core best practices**: https://nf-co.re/docs/contributing/guidelines
 - **BioContainers registry**: https://biocontainers.pro/
-- **Repository root README**: `../../README.md`
 
 ## Support
 
