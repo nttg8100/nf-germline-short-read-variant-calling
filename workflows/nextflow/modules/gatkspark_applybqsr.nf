@@ -1,10 +1,7 @@
-process GATK_APPLYBQSR {
+process GATKSPARK_APPLYBQSR {
     tag "$meta.id"
-    label 'process_medium'
-    
-    publishDir "${params.outdir}/aligned/${meta.id}", mode: 'copy'
-    
-    container 'quay.io/biocontainers/gatk4:4.4.0.0--py36hdfd78af_0'
+    label 'process_high'
+    container 'quay.io/biocontainers/gatk4-spark:4.6.1.0--hdfd78af_0'
     
     input:
     tuple val(meta), path(bam), path(bai), path(recal_table)
@@ -14,25 +11,25 @@ process GATK_APPLYBQSR {
     
     output:
     tuple val(meta), path("*_recal.bam"), emit: bam
-    tuple val(meta), path("*_recal.bai"), emit: bai
+    tuple val(meta), path("*_recal.bam.bai"), emit: bai
     path "versions.yml", emit: versions
     
     when:
     task.ext.when == null || task.ext.when
     
     script:
-    def args = task.ext.args ?: ''
-    def prefix = task.ext.prefix ?: "${meta.id}"
-    
+    def avail_mem = (task.memory.mega * 0.8).intValue()
     """
     # Apply Base Quality Score Recalibration
-    gatk ApplyBQSR \\
+    gatk --java-options "-Xmx${avail_mem}M -XX:-UsePerfData" \\
+        ApplyBQSRSpark \\
         -I $bam \\
         -R $reference \\
         --bqsr-recal-file $recal_table \\
-        $args \\
         --create-output-bam-index true \\
-        -O ${prefix}_recal.bam
+        -O ${meta.id}_recal.bam \\
+        --spark-master local[${task.cpus}] \\
+        --tmp-dir .
     
     # Create versions file
     cat <<-END_VERSIONS > versions.yml

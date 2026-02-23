@@ -2,9 +2,8 @@ process GATK_HAPLOTYPECALLER {
     tag "$meta.id"
     label 'process_high'
     
-    publishDir "${params.outdir}/variants/${meta.id}", mode: 'copy'
     
-    container 'quay.io/biocontainers/gatk4:4.4.0.0--py36hdfd78af_0'
+    container 'broadinstitute/gatk:4.6.1.0'
     
     input:
     tuple val(meta), path(bam), path(bai)
@@ -33,6 +32,7 @@ process GATK_HAPLOTYPECALLER {
         -I $bam \\
         -O ${prefix}.g.vcf.gz \\
         -ERC GVCF \\
+        --native-pair-hmm-threads ${task.cpus} \\
         --dbsnp $dbsnp \\
         $args
     

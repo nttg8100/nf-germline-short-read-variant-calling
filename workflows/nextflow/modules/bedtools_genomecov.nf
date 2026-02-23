@@ -3,7 +3,6 @@ process BEDTOOLS_GENOMECOV {
     label 'process_low'
     container 'quay.io/biocontainers/bedtools:2.31.0--hf5e1c6e_2'
     
-    publishDir "${params.outdir}/aligned/${meta.id}", mode: 'copy'
     
     input:
     tuple val(meta), path(bam), path(bai)

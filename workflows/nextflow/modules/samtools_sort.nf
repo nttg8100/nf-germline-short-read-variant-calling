@@ -2,7 +2,6 @@ process SAMTOOLS_SORT {
     tag "$meta.id"
     label 'process_medium'
     
-    publishDir "${params.outdir}/aligned/${meta.id}", mode: 'copy'
     
     container 'quay.io/biocontainers/samtools:1.17--hd87286a_2'
     

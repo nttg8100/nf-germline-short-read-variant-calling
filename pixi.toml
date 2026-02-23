@@ -6,7 +6,6 @@ channels = ["conda-forge", "bioconda"]
 platforms = ["linux-64"]
 
 [dependencies]
-bwa = "*"
 samtools = "*"
 gatk4 = "*"
 fastqc = "*"
@@ -17,3 +16,7 @@ bedtools = "*"
 snpeff = "*"
 htslib = "*"
 r-base = "*"
+fastp = ">=1.1.0,<2"
+bwa-mem2 = ">=2.3,<3"
+sra-tools = ">=3.2.1,<4"
+pigz = ">=2.8,<3"

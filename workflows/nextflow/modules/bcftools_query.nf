@@ -3,8 +3,6 @@ process BCFTOOLS_QUERY {
     label 'process_low'
     container 'quay.io/biocontainers/bcftools:1.17--haef29d1_0'
     
-    publishDir "${params.outdir}/variants/${meta.id}", mode: 'copy'
-    
     input:
     tuple val(meta), path(vcf), path(tbi)
     

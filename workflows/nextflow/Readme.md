@@ -12,10 +12,13 @@ This directory contains the **Nextflow DSL2 implementation** of the 16-step GATK
 
 ## Features
 
-- **18 modular processes** - One DSL2 module per logical step
-- **Multi-sample support** - CSV samplesheet for batch processing
-- **Container strategy** - Mix of BioContainers + Broad Institute GATK (R-enabled)
-- **Validated equivalence** - MD5 comparison proves scientific accuracy vs. bash
+- **20 modular processes** - One DSL2 module per logical step
+- **Multi-sample, multi-lane support** - CSV samplesheet with lane-level processing
+- **BWA-MEM2** - Faster alignment with AVX2 optimization (2-3x speedup over BWA)
+- **fastp** - All-in-one QC, trimming, and filtering (replaces FastQC + Trim Galore)
+- **GATK Spark** - Multi-threaded BQSR processing (MarkDuplicates, BaseRecalibrator, ApplyBQSR)
+- **Centralized configuration** - All publishDir settings in `conf/modules.config`
+- **Container strategy** - BioContainers for reproducibility
 - **Flexible profiles** - Test (single sample) / Full (multi-sample) / SLURM (HPC)
 
 ## Quick Start
@@ -55,12 +58,12 @@ nextflow run main.nf -profile singularity,test -resume
 ### 3. Run Multiple Samples (Samplesheet)
 
 ```bash
-# Edit samplesheet.csv to add/remove samples
+# Edit samplesheet.csv to add/remove samples and lanes
 cat samplesheet.csv
-# sample_id,fastq_1,fastq_2
-# sample1,../../data/sample1_R1.fastq.gz,../../data/sample1_R2.fastq.gz
-# sample2,../../data/sample2_R1.fastq.gz,../../data/sample2_R2.fastq.gz
-# sample3,../../data/sample3_R1.fastq.gz,../../data/sample3_R2.fastq.gz
+# sample,lane,fastq_1,fastq_2
+# sample1,L001,../../data/sample1_L001_R1.fastq.gz,../../data/sample1_L001_R2.fastq.gz
+# sample1,L002,../../data/sample1_L002_R1.fastq.gz,../../data/sample1_L002_R2.fastq.gz
+# sample2,L001,../../data/sample2_L001_R1.fastq.gz,../../data/sample2_L001_R2.fastq.gz
 
 # Run with samplesheet
 nextflow run main.nf -profile singularity --input samplesheet.csv -resume
@@ -72,67 +75,77 @@ nextflow run main.nf -profile singularity --input samplesheet.csv -resume
 
 ### Workflow Structure
 
-The main workflow (`main.nf`) orchestrates 16 GATK steps across 18 Nextflow processes:
+The main workflow (`main.nf`) orchestrates 16 GATK steps across 20 Nextflow processes:
 
 ```
 main.nf
-├── Step 1-2: QC and Trimming (parallel across all samples)
-│   ├── FASTQC(reads_ch)
-│   └── TRIM_GALORE(reads_ch)
-├── Step 3-5: Alignment (parallel across all samples)
-│   ├── BWA_MEM(trimmed_reads, reference)
-│   ├── SAMTOOLS_SORT(bam)
-│   └── GATK_MARKDUPLICATES(sorted_bam)
-├── Step 6-8: BQSR and QC (parallel across all samples)
-│   ├── GATK_BASERECALIBRATOR(bam, ref, known_sites)
-│   ├── GATK_APPLYBQSR(bam, table, ref)
-│   └── GATK_COLLECTMETRICS(recal_bam, ref)  # R-enabled container!
-├── Step 9: Variant Calling (parallel across all samples)
+├── Step 1: QC, Trimming, and Filtering (parallel across all lane-level FASTQs)
+│   └── FASTP(reads_ch) → Trimmed FASTQ + HTML/JSON reports
+├── Step 2: Read Alignment (parallel across all lanes)
+│   └── BWA_MEM2(trimmed_reads, reference) → Per-lane BAM
+├── Step 3: Sort BAM files (parallel)
+│   └── SAMTOOLS_SORT(bam) → Sorted BAM per lane
+├── Step 4: Merge lanes per sample
+│   └── SAMTOOLS_MERGE(sorted_bams.groupBy(sample)) → Per-sample BAM
+├── Step 5: Mark Duplicates (parallel across samples)
+│   └── GATKSPARK_MARKDUPLICATES(merged_bam) → Dedup BAM
+├── Step 6-7: Base Quality Score Recalibration (parallel across samples)
+│   ├── GATKSPARK_BASERECALIBRATOR(dedup_bam, ref, known_sites) → Recal table
+│   └── GATKSPARK_APPLYBQSR(dedup_bam, recal_table, ref) → Recalibrated BAM
+├── Step 8: Alignment Quality Assessment (parallel)
+│   └── GATK_COLLECTMETRICS(recal_bam, ref) → QC metrics
+├── Step 9: Variant Calling (parallel across samples)
 │   └── GATK_HAPLOTYPECALLER(recal_bam, ref) → GVCF
 ├── Step 10: Joint Genotyping (single job, all samples)
-│   └── GATK_GENOTYPEGVCFS(all_gvcfs.collect(), ref)
+│   └── GATK_GENOTYPEGVCFS(all_gvcfs.collect(), ref) → Raw VCF
 ├── Step 11-12: Filtering (parallel branches: SNPs and Indels)
 │   ├── GATK_SELECTVARIANTS_SNP + GATK_VARIANTFILTRATION_SNP
 │   └── GATK_SELECTVARIANTS_INDEL + GATK_VARIANTFILTRATION_INDEL
 ├── Step 13: Merge Filtered Variants
-│   └── GATK_MERGEVCFS(snp_vcf, indel_vcf)
+│   └── GATK_MERGEVCFS(snp_vcf, indel_vcf) → Filtered VCF
 ├── Step 14: Functional Annotation
-│   └── SNPEFF(merged_vcf)
+│   └── SNPEFF(merged_vcf) → Annotated VCF
 ├── Step 15: Variant Statistics
-│   └── BCFTOOLS_STATS(raw_vcf, snp_vcf, indel_vcf)
+│   └── BCFTOOLS_STATS(filtered_vcf) → Variant stats
 └── Step 16: Visualization
     ├── BCFTOOLS_QUERY(merged_vcf) → BED
     └── BEDTOOLS_GENOMECOV(recal_bam) → bedGraph
 ```
 
+**Key Optimizations:**
+- **Lane-aware processing**: Supports multiple lanes per sample, automatically merges at Step 4
+- **GATK Spark parallelization**: Steps 5-7 use multi-threaded Spark implementations
+- **Value channel reuse**: Reference files collected once and reused (eliminates duplicate `.collect()` calls)
+
 ### Modules Directory
 
 ```
 modules/
-├── fastqc.nf                      # Step 1: Quality control
-├── trim_galore.nf                 # Step 2: Adapter trimming
-├── bwa_mem.nf                     # Step 3: Read alignment
-├── samtools_sort.nf               # Step 4: BAM sorting
-├── gatk_markduplicates.nf         # Step 5: PCR duplicate marking
-├── gatk_baserecalibrator.nf       # Step 6: BQSR table generation
-├── gatk_applybqsr.nf              # Step 7: Apply recalibration
-├── gatk_collectmetrics.nf         # Step 8: Alignment QC (R-enabled)
-├── gatk_haplotypecaller.nf        # Step 9: Variant calling (GVCF)
-├── gatk_genotypegvcfs.nf          # Step 10: Joint genotyping
-├── gatk_selectvariants_snp.nf     # Step 11a: Extract SNPs
-├── gatk_variantfiltration_snp.nf  # Step 11b: Filter SNPs
-├── gatk_selectvariants_indel.nf   # Step 12a: Extract indels
-├── gatk_variantfiltration_indel.nf # Step 12b: Filter indels
-├── gatk_mergevcfs.nf              # Step 13: Merge filtered VCFs
-├── snpeff.nf                      # Step 14: Functional annotation
-├── bcftools_stats.nf              # Step 15: Variant statistics
-├── bcftools_query.nf              # Step 16a: VCF to BED conversion
-└── bedtools_genomecov.nf          # Step 16b: Coverage bedGraph
+├── fastp.nf                           # Step 1: QC, trimming, filtering (replaces FastQC + Trim Galore)
+├── bwa_mem2.nf                        # Step 2: Read alignment with BWA-MEM2
+├── samtools_sort.nf                   # Step 3: BAM sorting
+├── samtools_merge.nf                  # Step 4: Merge per-lane BAMs by sample
+├── gatkspark_markduplicates.nf        # Step 5: PCR duplicate marking (Spark)
+├── gatkspark_baserecalibrator.nf      # Step 6: BQSR table generation (Spark)
+├── gatkspark_applybqsr.nf             # Step 7: Apply recalibration (Spark)
+├── gatk_collectmetrics.nf             # Step 8: Alignment QC
+├── gatk_haplotypecaller.nf            # Step 9: Variant calling (GVCF mode)
+├── gatk_genotypegvcfs.nf              # Step 10: Joint genotyping
+├── gatk_selectvariants_snp.nf         # Step 11a: Extract SNPs
+├── gatk_variantfiltration_snp.nf      # Step 11b: Filter SNPs
+├── gatk_selectvariants_indel.nf       # Step 12a: Extract indels
+├── gatk_variantfiltration_indel.nf    # Step 12b: Filter indels
+├── gatk_mergevcfs.nf                  # Step 13: Merge filtered VCFs
+├── snpeff.nf                          # Step 14: Functional annotation
+├── bcftools_stats.nf                  # Step 15: Variant statistics
+├── bcftools_query.nf                  # Step 16a: VCF to BED conversion
+├── bedtools_genomecov.nf              # Step 16b: Coverage bedGraph
+└── save_reference.nf                  # Utility: Save reference files from S3
 ```
 
 Each module follows **nf-core DSL2 conventions**:
 - `tag` directive for sample tracking
-- `publishDir` for output organization
+- `publishDir` configurations centralized in `conf/modules.config`
 - `container` directive for Singularity/Docker images
 - `input/output/script` blocks with clear semantics
 
@@ -201,44 +214,64 @@ After running the pipeline, results are organized by sample:
 
 ```
 results_nextflow/
+├── trimmed/
+│   ├── sample1/
+│   │   ├── sample1_L001_trimmed_1.fastq.gz + _2.fastq.gz
+│   │   ├── sample1_L002_trimmed_1.fastq.gz + _2.fastq.gz
+│   │   └── sample1_L001_fastp.html/json (QC reports)
+│   ├── sample2/
+│   └── sample3/
 ├── aligned/
 │   ├── sample1/
-│   │   ├── sample1_aligned.bam
-│   │   ├── sample1_sorted.bam
-│   │   ├── sample1_dedup.bam + .bai
-│   │   ├── sample1_recal.bam + .bai
-│   │   ├── sample1_metrics.txt
-│   │   └── sample1_coverage.bedgraph
-│   ├── sample2/ (same structure)
+│   │   ├── sample1_L001_aligned.bam (per-lane)
+│   │   └── sample1_L002_aligned.bam
+│   ├── sample2/
+│   └── sample3/
+├── sorted/
+│   ├── sample1/
+│   │   ├── sample1_L001_sorted.bam
+│   │   └── sample1_L002_sorted.bam
+│   ├── sample2/
+│   └── sample3/
+├── merged/
+│   ├── sample1/sample1_merged.bam (lanes merged)
+│   ├── sample2/
+│   └── sample3/
+├── markdup/
+│   ├── sample1/sample1_dedup.bam + .bai
+│   ├── sample2/
 │   └── sample3/
 ├── bqsr/
 │   ├── sample1/sample1_recal.table
 │   ├── sample2/
 │   └── sample3/
+├── recalibrated/
+│   ├── sample1/
+│   │   ├── sample1_recal.bam + .bai
+│   │   └── sample1_coverage.bedgraph
+│   ├── sample2/
+│   └── sample3/
 ├── qc/
 │   ├── sample1/
-│   │   ├── sample1_R1_fastqc.html/zip
-│   │   ├── sample1_R2_fastqc.html/zip
 │   │   ├── sample1_alignment_summary.txt
 │   │   ├── sample1_insert_size_metrics.txt
 │   │   └── sample1_insert_size_histogram.pdf
-│   ├── sample2/
-│   └── sample3/
-├── trimmed/
-│   ├── sample1/sample1_R1_val_1.fq.gz + R2
 │   ├── sample2/
 │   └── sample3/
 └── variants/
     ├── sample1/
     │   ├── sample1.g.vcf.gz + .tbi
     │   ├── sample1_raw.vcf.gz + .tbi
-    │   ├── sample1_raw_snps/indels.vcf.gz
-    │   ├── sample1_filtered_snps/indels.vcf.gz
-    │   ├── sample1_filtered.vcf.gz
+    │   ├── sample1_raw_snps.vcf.gz + .tbi
+    │   ├── sample1_raw_indels.vcf.gz + .tbi
+    │   ├── sample1_filtered_snps.vcf.gz + .tbi
+    │   ├── sample1_filtered_indels.vcf.gz + .tbi
+    │   ├── sample1_filtered.vcf.gz + .tbi
     │   ├── sample1_annotated.vcf
-    │   ├── sample1_variant_stats_raw/filtered.txt
-    │   ├── sample1_raw_snp/indel_count.txt
-    │   ├── sample1_filtered_snp/indel_count.txt
+    │   ├── stats/
+    │   │   ├── sample1_variant_stats.txt
+    │   │   ├── sample1_snp_count.txt
+    │   │   └── sample1_indel_count.txt
     │   └── sample1_variants.bed
     ├── sample2/
     └── sample3/

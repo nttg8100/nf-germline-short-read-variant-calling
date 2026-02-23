@@ -3,7 +3,6 @@ process SNPEFF {
     label 'process_medium'
     container 'quay.io/biocontainers/snpeff:5.1--hdfd78af_2'
     
-    publishDir "${params.outdir}/variants/${meta.id}", mode: 'copy'
     
     input:
     tuple val(meta), path(vcf), path(tbi)
