@@ -35,13 +35,12 @@ workflow PREPROCESSING {
     ch_versions = Channel.empty()
     
     // Check if BWA index needs to be generated
-    bwa_index_ch
-        .ifEmpty { 
-            BWAMEM2_INDEX(ref_fasta)
-            ch_versions = ch_versions.mix(BWAMEM2_INDEX.out.versions)
-            BWAMEM2_INDEX.out.index.collect()
-        }
-        .set { ch_bwa_index }
+    // If empty, generate it; otherwise use provided index
+    ch_bwa_index = bwa_index_ch.ifEmpty {
+        BWAMEM2_INDEX(ref_fasta)
+        ch_versions = ch_versions.mix(BWAMEM2_INDEX.out.versions)
+        BWAMEM2_INDEX.out.index
+    }
     
     //
     // STEP 1: Adapter Trimming, Quality Filtering, and QC with fastp
@@ -140,8 +139,9 @@ workflow PREPROCESSING {
     ch_versions = ch_versions.mix(GATK_COLLECTMETRICS.out.versions)
     
     emit:
-    bam      = GATKSPARK_APPLYBQSR.out.bam      // channel: [ val(meta), path(bam) ]
-    bai      = GATKSPARK_APPLYBQSR.out.bai      // channel: [ val(meta), path(bai) ]
-    metrics  = GATK_COLLECTMETRICS.out.metrics  // channel: [ val(meta), path(metrics) ]
-    versions = ch_versions                       // channel: path(versions.yml)
+    bam                = GATKSPARK_APPLYBQSR.out.bam                  // channel: [ val(meta), path(bam) ]
+    bai                = GATKSPARK_APPLYBQSR.out.bai                  // channel: [ val(meta), path(bai) ]
+    alignment_summary  = GATK_COLLECTMETRICS.out.alignment_summary    // channel: [ val(meta), path(metrics) ]
+    insert_metrics     = GATK_COLLECTMETRICS.out.insert_metrics       // channel: [ val(meta), path(metrics) ]
+    versions           = ch_versions                                   // channel: path(versions.yml)
 }

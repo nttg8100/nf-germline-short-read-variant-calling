@@ -92,7 +92,8 @@ workflow GATK_VARIANT_CALLING {
     ch_versions = ch_versions.mix(ANNOTATION.out.versions)
     
     emit:
-    preprocessing_metrics = PREPROCESSING.out.metrics
+    alignment_summary = PREPROCESSING.out.alignment_summary
+    insert_metrics = PREPROCESSING.out.insert_metrics
     final_bam = PREPROCESSING.out.bam
     final_vcf = VARIANT_CALLING.out.vcf
     annotated_vcf = ANNOTATION.out.annotated_vcf

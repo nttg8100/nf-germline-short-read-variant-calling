@@ -61,8 +61,7 @@ workflow ANNOTATION {
     
     emit:
     annotated_vcf = SNPEFF.out.vcf
-    snpeff_html   = SNPEFF.out.html
-    snpeff_csv    = SNPEFF.out.csv
+    snpeff_log    = SNPEFF.out.log
     stats         = BCFTOOLS_STATS.out.stats
     bed           = BCFTOOLS_QUERY.out.bed
     bedgraph      = BEDTOOLS_GENOMECOV.out.bedgraph
