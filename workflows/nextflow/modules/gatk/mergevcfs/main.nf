@@ -1,8 +1,6 @@
 process GATK_MERGEVCFS {
     tag "$meta.id"
     label 'process_low'
-    
-    
     container 'broadinstitute/gatk:4.6.1.0'
     
     input:

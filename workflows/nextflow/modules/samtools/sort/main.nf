@@ -1,8 +1,6 @@
 process SAMTOOLS_SORT {
     tag "$meta.id"
     label 'process_medium'
-    
-    
     container 'quay.io/biocontainers/samtools:1.17--hd87286a_2'
     
     input:

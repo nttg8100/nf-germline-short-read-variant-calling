@@ -1,8 +1,6 @@
 process SAMTOOLS_MERGE {
     tag "$meta.id"
     label 'process_low'
-    
-    
     container 'quay.io/biocontainers/samtools:1.18--h50ea8bc_1'
     
     input:

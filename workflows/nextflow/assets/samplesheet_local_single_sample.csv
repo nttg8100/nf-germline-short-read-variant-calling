@@ -1,0 +1,2 @@
+sample,lane,fastq_1,fastq_2
+sample1,1,../../data/sample1_R1.fastq.gz,../../data/sample1_R2.fastq.gz

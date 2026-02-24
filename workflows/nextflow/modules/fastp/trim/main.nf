@@ -1,8 +1,6 @@
 process FASTP {
     tag "$meta.id"
     label 'process_medium'
-    
-    
     container 'quay.io/biocontainers/fastp:1.1.0--heae3180_0'
     
     input:

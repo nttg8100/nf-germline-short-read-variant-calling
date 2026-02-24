@@ -10,26 +10,27 @@ nextflow.enable.dsl=2
 */
 
 // Include modules
-include { SAVE_REFERENCE } from './modules/save_reference'
-include { FASTP } from './modules/fastp'
-include { BWA_MEM2 } from './modules/bwa_mem2'
-include { SAMTOOLS_SORT } from './modules/samtools_sort'
-include { SAMTOOLS_MERGE } from './modules/samtools_merge'
-include { GATKSPARK_MARKDUPLICATES } from './modules/gatkspark_markduplicates'
-include { GATKSPARK_BASERECALIBRATOR } from './modules/gatkspark_baserecalibrator'
-include { GATKSPARK_APPLYBQSR } from './modules/gatkspark_applybqsr'
-include { GATK_COLLECTMETRICS } from './modules/gatk_collectmetrics'
-include { GATK_HAPLOTYPECALLER } from './modules/gatk_haplotypecaller'
-include { GATK_GENOTYPEGVCFS } from './modules/gatk_genotypegvcfs'
-include { GATK_SELECTVARIANTS_SNP } from './modules/gatk_selectvariants_snp'
-include { GATK_VARIANTFILTRATION_SNP } from './modules/gatk_variantfiltration_snp'
-include { GATK_SELECTVARIANTS_INDEL } from './modules/gatk_selectvariants_indel'
-include { GATK_VARIANTFILTRATION_INDEL } from './modules/gatk_variantfiltration_indel'
-include { GATK_MERGEVCFS } from './modules/gatk_mergevcfs'
-include { SNPEFF } from './modules/snpeff'
-include { BCFTOOLS_STATS } from './modules/bcftools_stats'
-include { BCFTOOLS_QUERY } from './modules/bcftools_query'
-include { BEDTOOLS_GENOMECOV } from './modules/bedtools_genomecov'
+include { SAVE_REFERENCE } from './modules/save/reference/main'
+include { FASTP } from './modules/fastp/trim/main'
+include { BWAMEM2_INDEX } from './modules/bwa/index/main'
+include { BWA_MEM2 } from './modules/bwa/mem2/main'
+include { SAMTOOLS_SORT } from './modules/samtools/sort/main'
+include { SAMTOOLS_MERGE } from './modules/samtools/merge/main'
+include { GATKSPARK_MARKDUPLICATES } from './modules/gatkspark/markduplicates/main'
+include { GATKSPARK_BASERECALIBRATOR } from './modules/gatkspark/baserecalibrator/main'
+include { GATKSPARK_APPLYBQSR } from './modules/gatkspark/applybqsr/main'
+include { GATK_COLLECTMETRICS } from './modules/gatk/collectmetrics/main'
+include { GATK_HAPLOTYPECALLER } from './modules/gatk/haplotypecaller/main'
+include { GATK_GENOTYPEGVCFS } from './modules/gatk/genotypegvcfs/main'
+include { GATK_SELECTVARIANTS_SNP } from './modules/gatk/selectvariants_snp/main'
+include { GATK_VARIANTFILTRATION_SNP } from './modules/gatk/variantfiltration_snp/main'
+include { GATK_SELECTVARIANTS_INDEL } from './modules/gatk/selectvariants_indel/main'
+include { GATK_VARIANTFILTRATION_INDEL } from './modules/gatk/variantfiltration_indel/main'
+include { GATK_MERGEVCFS } from './modules/gatk/mergevcfs/main'
+include { SNPEFF } from './modules/snpeff/annotate/main'
+include { BCFTOOLS_STATS } from './modules/bcftools/stats/main'
+include { BCFTOOLS_QUERY } from './modules/bcftools/query/main'
+include { BEDTOOLS_GENOMECOV } from './modules/bedtools/genomecov/main'
 
 /*
 ========================================================================================
@@ -42,7 +43,7 @@ workflow GATK_VARIANT_CALLING {
     take:
     reads_ch        // channel: [ val(meta), [ path(read1), path(read2) ] ]
     reference_ch    // channel: [ path(fasta), path(fai), path(dict) ]
-    bwa_index_ch    // channel: [ path(amb), path(ann), path(bwt), path(pac), path(sa) ]
+    bwa_index_ch    // channel: Optional [ path(amb), path(ann), ...) ] - if empty, will be generated
     dbsnp_ch        // channel: [ path(vcf), path(tbi) ]
     known_indels_ch // channel: [ path(vcf), path(tbi) ]
     
@@ -60,6 +61,17 @@ workflow GATK_VARIANT_CALLING {
     known_indels_vcf = known_indels_ch.map { it[0] }.first()
     known_indels_tbi = known_indels_ch.map { it[1] }.first()
     
+    // Check if BWA index needs to be generated
+    // If bwa_index_ch is empty, generate index; otherwise use provided index
+    bwa_index_ch
+        .ifEmpty { 
+            // Index not provided, generate it
+            BWAMEM2_INDEX(ref_fasta)
+            ch_versions = ch_versions.mix(BWAMEM2_INDEX.out.versions)
+            BWAMEM2_INDEX.out.index.collect()
+        }
+        .set { ch_bwa_index }
+    
     //
     // STEP 1: Adapter Trimming, Quality Filtering, and QC with fastp
     //
@@ -69,14 +81,14 @@ workflow GATK_VARIANT_CALLING {
     ch_versions = ch_versions.mix(FASTP.out.versions)
     
     //
-    // STEP 2: Read Alignment with BWA-MEM
+    // STEP 2: Read Alignment with BWA-MEM2
     //
     BWA_MEM2 (
         FASTP.out.reads,
         ref_fasta,
         ref_fai,
         ref_dict,
-        bwa_index_ch
+        ch_bwa_index
     )
     ch_versions = ch_versions.mix(BWA_MEM2.out.versions)
     
@@ -363,8 +375,11 @@ workflow {
         //
         // Prepare BWA-MEM2 index files channel from S3
         // BWA-MEM2 uses different index format: .0123, .bwt.2bit.64, .amb, .ann, .pac, .alt
+        // Try to find existing index files, if not found, channel will be empty and index will be generated
         //
-        bwa_index_ch = Channel.fromPath("${genome_config.bwa_index}.{0123,amb,ann,pac,bwt.2bit.64,bwt,sa,alt}").collect()
+        bwa_index_ch = Channel.fromPath("${genome_config.bwa_index}.{0123,amb,ann,pac,bwt.2bit.64,bwt,sa,alt}", checkIfExists: false)
+            .collect()
+            .ifEmpty { Channel.empty() }
         
         //
         // Prepare known sites channels from S3
@@ -413,8 +428,11 @@ workflow {
         
         //
         // Prepare BWA-MEM2 index files channel
-        bwa_index_ch = Channel.fromPath("${params.reference}.{0123,amb,ann,pac,bwt.2bit.64,bwt,sa,alt}")
+        // Try to find existing index files, if not found, channel will be empty and index will be generated
+        //
+        bwa_index_ch = Channel.fromPath("${params.reference}.{0123,amb,ann,pac,bwt.2bit.64,bwt,sa,alt}", checkIfExists: false)
             .collect()
+            .ifEmpty { Channel.empty() }
         
         //
         // Prepare known sites channels
