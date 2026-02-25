@@ -9,6 +9,27 @@ nextflow.enable.dsl=2
 ========================================================================================
 */
 
+// Automatically set reference resources from iGenomes if --igenomes_base and --genome are set
+if (params.igenomes_base && params.genome && params.genomes.containsKey(params.genome)) {
+    def igenome_ref = params.genomes[params.genome]
+    if (igenome_ref) {
+        if (igenome_ref.fasta   ) params.reference        = igenome_ref.fasta
+        if (igenome_ref.fasta_fai) params.reference_index   = igenome_ref.fasta_fai
+        if (igenome_ref.dict    ) params.reference_dict    = igenome_ref.dict
+        if (igenome_ref.bwa2_index) params.bwa2_index      = igenome_ref.bwa2_index
+        if (igenome_ref.dbsnp   ) params.dbsnp            = igenome_ref.dbsnp
+        if (igenome_ref.dbsnp_tbi) params.dbsnp_tbi       = igenome_ref.dbsnp_tbi
+        if (igenome_ref.known_indels) params.known_indels  = igenome_ref.known_indels
+        if (igenome_ref.known_indels_tbi) params.known_indels_tbi = igenome_ref.known_indels_tbi
+        // Add/override more as needed if your config provides more assets
+        log.info "Loaded reference parameters from iGenomes: '${params.igenomes_base}/${params.genome}'"
+    }
+}
+// Fail if no references set
+if ( !(params.reference && params.reference_index && params.reference_dict) ) {
+    exit 1, 'ERROR: Reference genome not set! Specify --genome and --igenomes_base or set --reference (and related) manually.'
+}
+
 // Include subworkflows
 include { PREPROCESSING } from './subworkflows/local/preprocessing/main'
 include { VARIANT_CALLING } from './subworkflows/local/variant_calling/main'
