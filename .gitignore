@@ -15,6 +15,7 @@ work/
 
 # Logs
 *.log
+!pixi.lock
 pipeline.log
 
 # Intermediate files
