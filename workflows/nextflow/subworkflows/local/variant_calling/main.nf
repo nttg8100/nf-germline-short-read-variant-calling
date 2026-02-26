@@ -10,13 +10,13 @@ nextflow.enable.dsl=2
 */
 
 // Include modules
-include { GATK_HAPLOTYPECALLER } from '../../../modules/gatk/haplotypecaller/main'
-include { GATK_GENOTYPEGVCFS } from '../../../modules/gatk/genotypegvcfs/main'
-include { GATK_SELECTVARIANTS_SNP } from '../../../modules/gatk/selectvariants_snp/main'
-include { GATK_VARIANTFILTRATION_SNP } from '../../../modules/gatk/variantfiltration_snp/main'
-include { GATK_SELECTVARIANTS_INDEL } from '../../../modules/gatk/selectvariants_indel/main'
-include { GATK_VARIANTFILTRATION_INDEL } from '../../../modules/gatk/variantfiltration_indel/main'
-include { GATK_MERGEVCFS } from '../../../modules/gatk/mergevcfs/main'
+include { GATK_HAPLOTYPECALLER } from '../../../modules/local/gatk/haplotypecaller/main'
+include { GATK_GENOTYPEGVCFS } from '../../../modules/local/gatk/genotypegvcfs/main'
+include { GATK_SELECTVARIANTS_SNP } from '../../../modules/local/gatk/selectvariants_snp/main'
+include { GATK_VARIANTFILTRATION_SNP } from '../../../modules/local/gatk/variantfiltration_snp/main'
+include { GATK_SELECTVARIANTS_INDEL } from '../../../modules/local/gatk/selectvariants_indel/main'
+include { GATK_VARIANTFILTRATION_INDEL } from '../../../modules/local/gatk/variantfiltration_indel/main'
+include { GATK_MERGEVCFS } from '../../../modules/local/gatk/mergevcfs/main'
 
 workflow VARIANT_CALLING {
     

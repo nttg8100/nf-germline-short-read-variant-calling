@@ -8,15 +8,15 @@
 ========================================================================================
 */
 
-include { FASTP } from '../../../modules/fastp/trim/main'
-include { BWAMEM2_INDEX } from '../../../modules/bwa/index/main'
-include { BWA_MEM2 } from '../../../modules/bwa/mem2/main'
-include { SAMTOOLS_SORT } from '../../../modules/samtools/sort/main'
-include { SAMTOOLS_MERGE } from '../../../modules/samtools/merge/main'
-include { GATKSPARK_MARKDUPLICATES } from '../../../modules/gatkspark/markduplicates/main'
-include { GATKSPARK_BASERECALIBRATOR } from '../../../modules/gatkspark/baserecalibrator/main'
-include { GATKSPARK_APPLYBQSR } from '../../../modules/gatkspark/applybqsr/main'
-include { GATK_COLLECTMETRICS } from '../../../modules/gatk/collectmetrics/main'
+include { FASTP } from '../../../modules/local/fastp/trim/main'
+include { BWAMEM2_INDEX } from '../../../modules/local/bwa/index/main'
+include { BWA_MEM2 } from '../../../modules/local/bwa/mem2/main'
+include { SAMTOOLS_SORT } from '../../../modules/local/samtools/sort/main'
+include { SAMTOOLS_MERGE } from '../../../modules/local/samtools/merge/main'
+include { GATKSPARK_MARKDUPLICATES } from '../../../modules/local/gatkspark/markduplicates/main'
+include { GATKSPARK_BASERECALIBRATOR } from '../../../modules/local/gatkspark/baserecalibrator/main'
+include { GATKSPARK_APPLYBQSR } from '../../../modules/local/gatkspark/applybqsr/main'
+include { GATK_COLLECTMETRICS } from '../../../modules/local/gatk/collectmetrics/main'
 
 workflow PREPROCESSING {
     

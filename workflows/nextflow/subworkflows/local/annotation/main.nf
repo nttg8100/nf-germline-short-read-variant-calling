@@ -10,10 +10,10 @@ nextflow.enable.dsl=2
 */
 
 // Include modules
-include { SNPEFF } from '../../../modules/snpeff/annotate/main'
-include { BCFTOOLS_STATS } from '../../../modules/bcftools/stats/main'
-include { BCFTOOLS_QUERY } from '../../../modules/bcftools/query/main'
-include { BEDTOOLS_GENOMECOV } from '../../../modules/bedtools/genomecov/main'
+include { SNPEFF } from '../../../modules/local/snpeff/annotate/main'
+include { BCFTOOLS_STATS } from '../../../modules/local/bcftools/stats/main'
+include { BCFTOOLS_QUERY } from '../../../modules/local/bcftools/query/main'
+include { BEDTOOLS_GENOMECOV } from '../../../modules/local/bedtools/genomecov/main'
 
 workflow ANNOTATION {
     
