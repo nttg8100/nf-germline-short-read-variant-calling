@@ -15,4 +15,4 @@ jobs:
 
       - name: Running testing
         run: |
-          make -C workflows/nextflow test-e2e 
+          make test-e2e 
