@@ -1,21 +1,17 @@
-process GATK_HAPLOTYPECALLER {
+process GATK_SELECTVARIANTS_SNP {
     tag "$meta.id"
-    label 'process_high'
-    
-    
+    label 'process_low'
     container 'broadinstitute/gatk:4.6.1.0'
     
     input:
-    tuple val(meta), path(bam), path(bai)
+    tuple val(meta), path(vcf), path(tbi)
     path reference
     path reference_fai
     path reference_dict
-    path dbsnp
-    path dbsnp_tbi
     
     output:
-    tuple val(meta), path("*.g.vcf.gz"), emit: gvcf
-    tuple val(meta), path("*.g.vcf.gz.tbi"), emit: tbi
+    tuple val(meta), path("*_raw_snps.vcf.gz"), emit: vcf
+    tuple val(meta), path("*_raw_snps.vcf.gz.tbi"), emit: tbi
     path "versions.yml", emit: versions
     
     when:
@@ -26,15 +22,13 @@ process GATK_HAPLOTYPECALLER {
     def prefix = task.ext.prefix ?: "${meta.id}"
     
     """
-    # Variant Calling with HaplotypeCaller (GVCF mode)
-    gatk HaplotypeCaller \\
+    # Select SNPs
+    gatk SelectVariants \\
         -R $reference \\
-        -I $bam \\
-        -O ${prefix}.g.vcf.gz \\
-        -ERC GVCF \\
-        --native-pair-hmm-threads ${task.cpus} \\
-        --dbsnp $dbsnp \\
-        $args
+        -V $vcf \\
+        --select-type-to-include SNP \\
+        $args \\
+        -O ${prefix}_raw_snps.vcf.gz
     
     # Create versions file
     cat <<-END_VERSIONS > versions.yml

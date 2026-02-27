@@ -1,8 +1,6 @@
 process GATK_GENOTYPEGVCFS {
     tag "$meta.id"
     label 'process_medium'
-    
-    
     container 'broadinstitute/gatk:4.6.1.0'
     
     input:

@@ -9,27 +9,28 @@ nextflow.enable.dsl=2
 ========================================================================================
 */
 
-// Include modules
-include { SAVE_REFERENCE } from './modules/save_reference'
-include { FASTP } from './modules/fastp'
-include { BWA_MEM2 } from './modules/bwa_mem2'
-include { SAMTOOLS_SORT } from './modules/samtools_sort'
-include { SAMTOOLS_MERGE } from './modules/samtools_merge'
-include { GATKSPARK_MARKDUPLICATES } from './modules/gatkspark_markduplicates'
-include { GATKSPARK_BASERECALIBRATOR } from './modules/gatkspark_baserecalibrator'
-include { GATKSPARK_APPLYBQSR } from './modules/gatkspark_applybqsr'
-include { GATK_COLLECTMETRICS } from './modules/gatk_collectmetrics'
-include { GATK_HAPLOTYPECALLER } from './modules/gatk_haplotypecaller'
-include { GATK_GENOTYPEGVCFS } from './modules/gatk_genotypegvcfs'
-include { GATK_SELECTVARIANTS_SNP } from './modules/gatk_selectvariants_snp'
-include { GATK_VARIANTFILTRATION_SNP } from './modules/gatk_variantfiltration_snp'
-include { GATK_SELECTVARIANTS_INDEL } from './modules/gatk_selectvariants_indel'
-include { GATK_VARIANTFILTRATION_INDEL } from './modules/gatk_variantfiltration_indel'
-include { GATK_MERGEVCFS } from './modules/gatk_mergevcfs'
-include { SNPEFF } from './modules/snpeff'
-include { BCFTOOLS_STATS } from './modules/bcftools_stats'
-include { BCFTOOLS_QUERY } from './modules/bcftools_query'
-include { BEDTOOLS_GENOMECOV } from './modules/bedtools_genomecov'
+// Automatically set reference resources from iGenomes if --igenomes_base and --genome are set
+if (params.genome && params.genomes.containsKey(params.genome)) {
+    def igenome_ref = params.genomes[params.genome]
+    if (igenome_ref) {
+        if (igenome_ref.fasta   ) params.reference        = igenome_ref.fasta
+        if (igenome_ref.fasta_fai) params.reference_index   = igenome_ref.fasta_fai
+        if (igenome_ref.dict    ) params.reference_dict    = igenome_ref.dict
+        if (igenome_ref.index_bwa2_reference) params.index_bwa2_reference = igenome_ref.index_bwa2_reference
+        if (igenome_ref.bwa2_index) params.bwa2_index      = igenome_ref.bwa2_index
+        if (igenome_ref.dbsnp   ) params.dbsnp            = igenome_ref.dbsnp
+        if (igenome_ref.dbsnp_tbi) params.dbsnp_tbi       = igenome_ref.dbsnp_tbi
+        if (igenome_ref.known_indels) params.known_indels  = igenome_ref.known_indels
+        if (igenome_ref.known_indels_tbi) params.known_indels_tbi = igenome_ref.known_indels_tbi
+        // Add/override more as needed if your config provides more assets
+    }
+}
+
+
+// Include subworkflows
+include { PREPROCESSING } from './subworkflows/local/preprocessing/main'
+include { VARIANT_CALLING } from './subworkflows/local/variant_calling/main'
+include { ANNOTATION } from './subworkflows/local/annotation/main'
 
 /*
 ========================================================================================
@@ -41,243 +42,70 @@ workflow GATK_VARIANT_CALLING {
     
     take:
     reads_ch        // channel: [ val(meta), [ path(read1), path(read2) ] ]
-    reference_ch    // channel: [ path(fasta), path(fai), path(dict) ]
-    bwa_index_ch    // channel: [ path(amb), path(ann), path(bwt), path(pac), path(sa) ]
-    dbsnp_ch        // channel: [ path(vcf), path(tbi) ]
-    known_indels_ch // channel: [ path(vcf), path(tbi) ]
+    ref_fasta       // channel: path(fasta)
+    ref_fai         // channel: path(fai)
+    ref_dict        // channel: path(dict)
+    bwa2_index_ch 
+    index_bwa2_reference // channel: Optional [ path(amb), path(ann), ...) ] - if empty, will be generated
+    dbsnp_vcf      // channel: path(dbsnp vcf)
+    dbsnp_tbi      // channel: path(dbsnp tbi)
+    known_indels_vcf // channel: path(known indel vcf)
+    known_indels_tbi // channel: path(known indel tbi)
     
     main:
     ch_versions = Channel.empty()
-    
-    // Convert input channels to value channels (collect once, reuse everywhere)
-    ref_fasta = reference_ch.map { it[0] }.first()
-    ref_fai   = reference_ch.map { it[1] }.first()
-    ref_dict  = reference_ch.map { it[2] }.first()
-    
-    dbsnp_vcf = dbsnp_ch.map { it[0] }.first()
-    dbsnp_tbi = dbsnp_ch.map { it[1] }.first()
-    
-    known_indels_vcf = known_indels_ch.map { it[0] }.first()
-    known_indels_tbi = known_indels_ch.map { it[1] }.first()
-    
     //
-    // STEP 1: Adapter Trimming, Quality Filtering, and QC with fastp
+    // SUBWORKFLOW: PREPROCESSING (Steps 1-8)
+    // Includes: FASTP, BWA-MEM2, Sorting, Merging, MarkDuplicates, BQSR, Metrics
     //
-    FASTP (
-        reads_ch
-    )
-    ch_versions = ch_versions.mix(FASTP.out.versions)
-    
-    //
-    // STEP 2: Read Alignment with BWA-MEM
-    //
-    BWA_MEM2 (
-        FASTP.out.reads,
+    PREPROCESSING (
+        reads_ch,
         ref_fasta,
         ref_fai,
         ref_dict,
-        bwa_index_ch
-    )
-    ch_versions = ch_versions.mix(BWA_MEM2.out.versions)
-    
-    //
-    // STEP 3: Sort BAM file
-    //
-    SAMTOOLS_SORT (
-        BWA_MEM2.out.bam
-    )
-    ch_versions = ch_versions.mix(SAMTOOLS_SORT.out.versions)
-    
-    //
-    // STEP 4: Merge lanes per sample (if multiple lanes exist)
-    // Group by sample ID and collect all BAMs for each sample
-    //
-    SAMTOOLS_SORT.out.bam
-        .map { meta, bam ->
-            // Create new meta with only sample ID for merging
-            def new_meta = [:]
-            new_meta.id = meta.sample
-            new_meta.sample = meta.sample
-            return [ new_meta.id, new_meta, bam ]
-        }
-        .groupTuple()
-        .map { sample_id, metas, bams ->
-            // Take the first meta (they should all have same sample info)
-            return [ metas[0], bams ]
-        }
-        .set { ch_bams_to_merge }
-    
-    SAMTOOLS_MERGE (
-        ch_bams_to_merge
-    )
-    ch_versions = ch_versions.mix(SAMTOOLS_MERGE.out.versions)
-    
-    //
-    // STEP 5: Mark Duplicates
-    //
-    GATKSPARK_MARKDUPLICATES (
-        SAMTOOLS_MERGE.out.bam
-    )
-    ch_versions = ch_versions.mix(GATKSPARK_MARKDUPLICATES.out.versions)
-    
-    //
-    // STEP 6: Base Quality Score Recalibration - Generate table
-    //
-    GATKSPARK_BASERECALIBRATOR (
-        GATKSPARK_MARKDUPLICATES.out.bam.join(GATKSPARK_MARKDUPLICATES.out.bai),
-        ref_fasta,
-        ref_fai,
-        ref_dict,
+        bwa2_index_ch,
+        index_bwa2_reference,
         dbsnp_vcf,
         dbsnp_tbi,
         known_indels_vcf,
         known_indels_tbi
     )
-    ch_versions = ch_versions.mix(GATKSPARK_BASERECALIBRATOR.out.versions)
+    ch_versions = ch_versions.mix(PREPROCESSING.out.versions)
     
     //
-    // STEP 7: Apply BQSR
+    // SUBWORKFLOW: VARIANT_CALLING (Steps 9-13)
+    // Includes: HaplotypeCaller, GenotypeGVCFs, Variant Filtering, Merging
     //
-    GATKSPARK_APPLYBQSR (
-        GATKSPARK_MARKDUPLICATES.out.bam
-            .join(GATKSPARK_MARKDUPLICATES.out.bai)
-            .join(GATKSPARK_BASERECALIBRATOR.out.table),
-        ref_fasta,
-        ref_fai,
-        ref_dict
-    )
-    ch_versions = ch_versions.mix(GATKSPARK_APPLYBQSR.out.versions)
-    
-    //
-    // STEP 8: Alignment Quality Assessment
-    //
-    GATK_COLLECTMETRICS (
-        GATKSPARK_APPLYBQSR.out.bam.join(GATKSPARK_APPLYBQSR.out.bai),
-        ref_fasta,
-        ref_fai,
-        ref_dict
-    )
-    ch_versions = ch_versions.mix(GATK_COLLECTMETRICS.out.versions)
-    
-    //
-    // STEP 9: Variant Calling with HaplotypeCaller (GVCF mode) or FreeBayes
-    //
-    GATK_HAPLOTYPECALLER (
-        GATKSPARK_APPLYBQSR.out.bam.join(GATKSPARK_APPLYBQSR.out.bai),
+    VARIANT_CALLING (
+        PREPROCESSING.out.bam,
+        PREPROCESSING.out.bai,
         ref_fasta,
         ref_fai,
         ref_dict,
         dbsnp_vcf,
         dbsnp_tbi
     )
-    ch_versions = ch_versions.mix(GATK_HAPLOTYPECALLER.out.versions)
+    ch_versions = ch_versions.mix(VARIANT_CALLING.out.versions)
     
     //
-    // STEP 10: Genotype GVCFs
+    // SUBWORKFLOW: ANNOTATION (Steps 14-16)
+    // Includes: SnpEff, bcftools stats, Visualization
     //
-    GATK_GENOTYPEGVCFS (
-        GATK_HAPLOTYPECALLER.out.gvcf.join(GATK_HAPLOTYPECALLER.out.tbi),
-        ref_fasta,
-        ref_fai,
-        ref_dict
+    ANNOTATION (
+        VARIANT_CALLING.out.vcf,
+        VARIANT_CALLING.out.tbi,
+        PREPROCESSING.out.bam,
+        PREPROCESSING.out.bai,
+        params.snpeff_genome
     )
-    ch_versions = ch_versions.mix(GATK_GENOTYPEGVCFS.out.versions)
-    
-    //
-    // STEP 11: Select and Filter SNPs
-    //
-    GATK_SELECTVARIANTS_SNP (
-        GATK_GENOTYPEGVCFS.out.vcf.join(GATK_GENOTYPEGVCFS.out.tbi),
-        ref_fasta,
-        ref_fai,
-        ref_dict
-    )
-    ch_versions = ch_versions.mix(GATK_SELECTVARIANTS_SNP.out.versions)
-    
-    GATK_VARIANTFILTRATION_SNP (
-        GATK_SELECTVARIANTS_SNP.out.vcf.join(GATK_SELECTVARIANTS_SNP.out.tbi),
-        ref_fasta,
-        ref_fai,
-        ref_dict
-    )
-    ch_versions = ch_versions.mix(GATK_VARIANTFILTRATION_SNP.out.versions)
-    
-    //
-    // STEP 12: Select and Filter Indels
-    //
-    GATK_SELECTVARIANTS_INDEL (
-        GATK_GENOTYPEGVCFS.out.vcf.join(GATK_GENOTYPEGVCFS.out.tbi),
-        ref_fasta,
-        ref_fai,
-        ref_dict
-    )
-    ch_versions = ch_versions.mix(GATK_SELECTVARIANTS_INDEL.out.versions)
-    
-    GATK_VARIANTFILTRATION_INDEL (
-        GATK_SELECTVARIANTS_INDEL.out.vcf.join(GATK_SELECTVARIANTS_INDEL.out.tbi),
-        ref_fasta,
-        ref_fai,
-        ref_dict
-    )
-    ch_versions = ch_versions.mix(GATK_VARIANTFILTRATION_INDEL.out.versions)
-    
-    //
-    // STEP 13: Merge filtered SNPs and Indels
-    //
-    GATK_MERGEVCFS (
-        GATK_VARIANTFILTRATION_SNP.out.vcf
-            .join(GATK_VARIANTFILTRATION_SNP.out.tbi)
-            .join(GATK_VARIANTFILTRATION_INDEL.out.vcf)
-            .join(GATK_VARIANTFILTRATION_INDEL.out.tbi),
-        ref_fasta,
-        ref_fai,
-        ref_dict
-    )
-    ch_versions = ch_versions.mix(GATK_MERGEVCFS.out.versions)
-    
-    // Set final VCF channel for downstream processes
-    ch_final_vcf = GATK_MERGEVCFS.out.vcf
-    ch_final_tbi = GATK_MERGEVCFS.out.tbi
-    
-    //
-    // STEP 14: Functional Annotation with SnpEff
-    //
-    SNPEFF (
-        ch_final_vcf.join(ch_final_tbi),
-        params.snpeff_genome ?: 'GRCh38.mane.1.0.refseq'
-    )
-    ch_versions = ch_versions.mix(SNPEFF.out.versions)
-    
-    //
-    // STEP 15: Variant Statistics with bcftools
-    //
-    BCFTOOLS_STATS (
-        ch_final_vcf.join(ch_final_tbi)
-    )
-    ch_versions = ch_versions.mix(BCFTOOLS_STATS.out.versions)
-    
-    //
-    // STEP 16: Create Visualization Files
-    //
-    // 16a: Create BED file from VCF with bcftools
-    BCFTOOLS_QUERY (
-        ch_final_vcf.join(ch_final_tbi)
-    )
-    ch_versions = ch_versions.mix(BCFTOOLS_QUERY.out.versions)
-    
-    // 16b: Generate coverage track with bedtools
-    BEDTOOLS_GENOMECOV (
-        GATKSPARK_APPLYBQSR.out.bam.join(GATKSPARK_APPLYBQSR.out.bai)
-    )
-    ch_versions = ch_versions.mix(BEDTOOLS_GENOMECOV.out.versions)
+    ch_versions = ch_versions.mix(ANNOTATION.out.versions)
     
     emit:
-    fastp_html = FASTP.out.html
-    fastp_json = FASTP.out.json
-    trimmed_reads = FASTP.out.reads
-    final_bam = GATKSPARK_APPLYBQSR.out.bam
-    final_vcf = ch_final_vcf
-    annotated_vcf = SNPEFF.out.vcf
+    alignment_summary = PREPROCESSING.out.alignment_summary
+    insert_metrics = PREPROCESSING.out.insert_metrics
+    final_bam = PREPROCESSING.out.bam
+    final_vcf = VARIANT_CALLING.out.vcf
+    annotated_vcf = ANNOTATION.out.annotated_vcf
     versions = ch_versions
 }
 
@@ -292,153 +120,73 @@ workflow {
     //
     // Create input channel from samplesheet or input parameters
     //
-    if (params.input) {
-        // Read from samplesheet CSV
-        Channel
-            .fromPath(params.input)
-            .splitCsv(header: true)
-            .map { row ->
-                def meta = [:]
-                meta.id = row.sample
-                meta.sample = row.sample
-                // Support both new format (with lane) and old format (without lane)
-                meta.lane = row.lane ?: "L001"
-                meta.read_group = "${row.sample}_${meta.lane}"
-                def reads = []
-                reads.add(file(row.fastq_1))
-                if (row.fastq_2) {
-                    reads.add(file(row.fastq_2))
-                }
-                return [ meta, reads ]
+    // Read from samplesheet CSV
+    Channel
+        .fromPath(params.input)
+        .splitCsv(header: true)
+        .map { row ->
+            def meta = [:]
+            meta.id = row.sample
+            meta.sample = row.sample
+            // Support both new format (with lane) and old format (without lane)
+            meta.lane = row.lane ?: "L001"
+            meta.read_group = "${row.sample}_${meta.lane}"
+            def reads = []
+            reads.add(file(row.fastq_1))
+            if (row.fastq_2) {
+                reads.add(file(row.fastq_2))
             }
-            .set { ch_input }
-    } else {
-        // Direct parameters
-        def meta = [:]
-        meta.id = params.sample ?: 'sample1'
-        
-        def reads = []
-        reads.add(file(params.fastq_r1))
-        if (params.fastq_r2) {
-            reads.add(file(params.fastq_r2))
+            return [ meta, reads ]
         }
-        
-        ch_input = Channel.of([ meta, reads ])
-    }
+        .set { ch_input }
+    
+    log.info """
+    ==============================================================================================================================
+    nf-germline-short-read-variant-calling:
+     - Nextflow Version
+     - Workflow: GATK_VARIANT_CALLING
+     - Subworkflows: PREPROCESSING, VARIANT_CALLING, ANNOTATION
+     - Loaded genomes set: ${params.genome ? params.genome : 'None'}
+     - Reference Genome: ${params.reference}
+     - dbSNP VCF: ${params.dbsnp}
+     - Known Indels VCF: ${params.known_indels}
+     - Input Samplesheet: ${params.input}
+     - Output Directory: ${params.outdir}
+    ==============================================================================================================================
+    """.stripIndent()
     
     //
-    // Prepare reference files - either use iGenomes S3 paths or local files
-    // Nextflow automatically handles S3 file fetching
+    // Prepare reference genome channels
+    // Values from nextflow.config params block, override via CLI as needed
+    ref_fasta_ch = Channel.fromPath(params.reference, checkIfExists: true).collect()
+    ref_fai_ch   = Channel.fromPath(params.reference_index, checkIfExists: true).collect()
+    ref_dict_ch  = Channel.fromPath(params.reference_dict, checkIfExists: true).collect()
+
+    // Prepare known sites channels
+    // Values from nextflow.config params block, override via CLI as needed
+    dbsnp_vcf_ch       = Channel.fromPath(params.dbsnp, checkIfExists: true).collect()
+    dbsnp_tbi_ch       = Channel.fromPath(params.dbsnp_tbi, checkIfExists: true).collect()
+    known_indels_vcf_ch = Channel.fromPath(params.known_indels, checkIfExists: true).collect()
+    known_indels_tbi_ch = Channel.fromPath(params.known_indels_tbi, checkIfExists: true).collect()
+
+    // Prepare BWA-MEM2 index files channel
+    // Try to find existing index files, if not found, channel will be empty and index will be generated
     //
-    if (params.use_igenomes) {
-        // Get genome-specific paths from config
-        def genome_config = params.genomes[params.genome]
-        
-        log.info """
-        ==========================================
-        Using iGenomes Reference Files
-        ==========================================
-        Genome        : ${params.genome}
-        iGenomes Base : ${params.igenomes_base}
-        Save Reference: ${params.save_reference}
-        Variant Caller : ${params.variant_caller}
-        ==========================================
-        FASTA         : ${genome_config.fasta}
-        BWA Index     : ${genome_config.bwa_index}
-        dbSNP         : ${genome_config.dbsnp}
-        Known Indels  : ${genome_config.known_indels}
-        ==========================================
-        """.stripIndent()
-        
-        //
-        // Prepare reference genome channel from S3
-        // Nextflow will automatically fetch these files when needed
-        //
-        reference_ch = Channel.of([
-            file(genome_config.fasta),
-            file(genome_config.fasta_fai),
-            file(genome_config.dict)
-        ])
-        
-        //
-        // Prepare BWA-MEM2 index files channel from S3
-        // BWA-MEM2 uses different index format: .0123, .bwt.2bit.64, .amb, .ann, .pac, .alt
-        //
-        bwa_index_ch = Channel.fromPath("${genome_config.bwa_index}.{0123,amb,ann,pac,bwt.2bit.64,bwt,sa,alt}").collect()
-        
-        //
-        // Prepare known sites channels from S3
-        //
-        dbsnp_ch = Channel.of([
-            file(genome_config.dbsnp),
-            file(genome_config.dbsnp_tbi)
-        ])
-        
-        known_indels_ch = Channel.of([
-            file(genome_config.known_indels),
-            file(genome_config.known_indels_tbi)
-        ])
-        
-        //
-        // Optionally save reference files to output directory for reuse
-        //
-        if (params.save_reference) {
-            SAVE_REFERENCE(
-                reference_ch,
-                bwa_index_ch,
-                dbsnp_ch,
-                known_indels_ch
-            )
-        }
-        
-    } else {
-        log.info """
-        ==========================================
-        Using Local Reference Files
-        ==========================================
-        Reference     : ${params.reference}
-        dbSNP         : ${params.dbsnp}
-        Known Indels  : ${params.known_indels}
-        ==========================================
-        """.stripIndent()
-        
-        //
-        // Prepare reference genome channel
-        //
-        reference_ch = Channel.of([
-            file(params.reference),
-            file("${params.reference}.fai"),
-            file(params.reference.toString().replace('.fasta', '.dict').replace('.fa', '.dict'))
-        ])
-        
-        //
-        // Prepare BWA-MEM2 index files channel
-        bwa_index_ch = Channel.fromPath("${params.reference}.{0123,amb,ann,pac,bwt.2bit.64,bwt,sa,alt}")
-            .collect()
-        
-        //
-        // Prepare known sites channels
-        //
-        dbsnp_ch = Channel.of([
-            file(params.dbsnp),
-            file("${params.dbsnp}.tbi")
-        ])
-        
-        known_indels_ch = Channel.of([
-            file(params.known_indels),
-            file("${params.known_indels}.tbi")
-        ])
-    }
-    
+
     //
     // RUN WORKFLOW
     //
     GATK_VARIANT_CALLING (
         ch_input,
-        reference_ch,
-        bwa_index_ch,
-        dbsnp_ch,
-        known_indels_ch
+        ref_fasta_ch,
+        ref_fai_ch,
+        ref_dict_ch,
+        params.bwa2_index,
+        params.index_bwa2_reference,
+        dbsnp_vcf_ch,
+        dbsnp_tbi_ch,
+        known_indels_vcf_ch,
+        known_indels_tbi_ch
     )
 }
 
