@@ -46,10 +46,6 @@ RECAL_TABLE="${ALIGNED_DIR}/${SAMPLE}_recal_data.table"
 RECAL_BAM="${ALIGNED_DIR}/${SAMPLE}_recalibrated.bam"
 GVCF="${VAR_DIR}/${SAMPLE}.g.vcf.gz"
 RAW_VCF="${VAR_DIR}/${SAMPLE}_raw_variants.vcf.gz"
-FILTERED_SNP_VCF="${VAR_DIR}/${SAMPLE}_filtered_snps.vcf.gz"
-FILTERED_INDEL_VCF="${VAR_DIR}/${SAMPLE}_filtered_indels.vcf.gz"
-FINAL_VCF="${VAR_DIR}/${SAMPLE}_filtered.vcf.gz"
-ANNOTATED_VCF="${VAR_DIR}/${SAMPLE}_annotated.vcf"
 METRICS="${ALIGNED_DIR}/${SAMPLE}_duplicate_metrics.txt"
 
 # Check tools are available
@@ -59,7 +55,7 @@ fastqc --version
 echo "✓ Trim Galore:" 
 trim_galore --version
 echo "✓ BWA:" 
-bwa
+bwa || true  # BWA doesn't have a --version flag, so we ignore the error
 echo "✓ Samtools:" 
 samtools --version
 echo "✓ GATK:" 
@@ -108,9 +104,10 @@ bwa mem \
 echo "[$(date)] Alignment completed"
 echo
 
-# Step 4: Sort BAM file
+# Step 4: Sort and Index BAM file
 echo "[$(date)] Step 4: Sorting BAM file..."
 samtools sort -@ ${THREADS} -o ${SORTED_BAM} ${ALIGNED_BAM}
+samtools index ${SORTED_BAM}
 echo "[$(date)] Sorting completed"
 echo
 
@@ -119,8 +116,7 @@ echo "[$(date)] Step 5: Marking duplicates with GATK..."
 gatk MarkDuplicates \
     -I ${SORTED_BAM} \
     -O ${DEDUP_BAM} \
-    -M ${METRICS} \
-    --CREATE_INDEX true
+    -M ${METRICS} 
 echo "[$(date)] Mark duplicates completed"
 echo
 
@@ -179,12 +175,3 @@ gatk GenotypeGVCFs \
     -O ${RAW_VCF}
 echo "[$(date)] Genotyping completed"
 echo
-
-
-bwa = "0.7.17"
-samtools = "1.16.1"
-gatk4 = "4.6.2.0"
-fastqc = "0.12.1"
-curl = "*"
-trim-galore = "0.16.11"
-r-base = ">=4.4.2,<4.5"

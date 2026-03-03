@@ -31,10 +31,14 @@ workflow GATK_VARIANT_CALLING {
     
     take:
     reads_ch        // channel: [ val(meta), [ path(read1), path(read2) ] ]
-    reference_ch    // channel: [ path(fasta), path(fai), path(dict) ]
+    reference_ch    // channel: [ path(fasta)]
+    reference_fai_ch // channel: [ path(fasta.fai) ]
+    reference_dict_ch // channel: [ path(fasta.dict) ]
     bwa_index_ch    // channel: [ path(amb), path(ann), path(bwt), path(pac), path(sa) ]
-    dbsnp_ch        // channel: [ path(vcf), path(tbi) ]
-    known_indels_ch // channel: [ path(vcf), path(tbi) ]
+    dbsnp_ch        // channel: [ path(vcf) ]
+    dbsnp_tbi_ch    // channel: [ path(tbi) ]
+    known_indels_ch // channel: [ path(vcf) ]
+    known_indels_tbi_ch // channel: [ path(tbi) ]
     
     main:
     ch_versions = Channel.empty()
@@ -60,9 +64,9 @@ workflow GATK_VARIANT_CALLING {
     //
     BWA_MEM (
         TRIM_GALORE.out.reads,
-        reference_ch.map { it[0] },
-        reference_ch.map { it[1] },
-        reference_ch.map { it[2] },
+        reference_ch,
+        reference_fai_ch,
+        reference_dict_ch,
         bwa_index_ch
     )
     ch_versions = ch_versions.mix(BWA_MEM.out.versions)
@@ -88,13 +92,13 @@ workflow GATK_VARIANT_CALLING {
     //
     GATK_BASERECALIBRATOR (
         GATK_MARKDUPLICATES.out.bam.join(GATK_MARKDUPLICATES.out.bai),
-        reference_ch.map { it[0] },
-        reference_ch.map { it[1] },
-        reference_ch.map { it[2] },
-        dbsnp_ch.map { it[0] },
-        dbsnp_ch.map { it[1] },
-        known_indels_ch.map { it[0] },
-        known_indels_ch.map { it[1] }
+        reference_ch, 
+        reference_fai_ch,
+        reference_dict_ch,
+        dbsnp_ch,
+        dbsnp_tbi_ch,
+        known_indels_ch,
+        known_indels_tbi_ch
     )
     ch_versions = ch_versions.mix(GATK_BASERECALIBRATOR.out.versions)
     
@@ -105,9 +109,9 @@ workflow GATK_VARIANT_CALLING {
         GATK_MARKDUPLICATES.out.bam
             .join(GATK_MARKDUPLICATES.out.bai)
             .join(GATK_BASERECALIBRATOR.out.table),
-        reference_ch.map { it[0] },
-        reference_ch.map { it[1] },
-        reference_ch.map { it[2] }
+        reference_ch, 
+        reference_fai_ch,
+        reference_dict_ch
     )
     ch_versions = ch_versions.mix(GATK_APPLYBQSR.out.versions)
     
@@ -116,9 +120,9 @@ workflow GATK_VARIANT_CALLING {
     //
     GATK_COLLECTMETRICS (
         GATK_APPLYBQSR.out.bam.join(GATK_APPLYBQSR.out.bai),
-        reference_ch.map { it[0] },
-        reference_ch.map { it[1] },
-        reference_ch.map { it[2] }
+        reference_ch, 
+        reference_fai_ch,
+        reference_dict_ch
     )
     ch_versions = ch_versions.mix(GATK_COLLECTMETRICS.out.versions)
     
@@ -127,11 +131,11 @@ workflow GATK_VARIANT_CALLING {
     //
     GATK_HAPLOTYPECALLER (
         GATK_APPLYBQSR.out.bam.join(GATK_APPLYBQSR.out.bai),
-        reference_ch.map { it[0] },
-        reference_ch.map { it[1] },
-        reference_ch.map { it[2] },
-        dbsnp_ch.map { it[0] },
-        dbsnp_ch.map { it[1] }
+        reference_ch, 
+        reference_fai_ch,
+        reference_dict_ch,
+        dbsnp_ch,
+        dbsnp_tbi_ch
     )
     ch_versions = ch_versions.mix(GATK_HAPLOTYPECALLER.out.versions)
     
@@ -140,9 +144,9 @@ workflow GATK_VARIANT_CALLING {
     //
     GATK_GENOTYPEGVCFS (
         GATK_HAPLOTYPECALLER.out.gvcf.join(GATK_HAPLOTYPECALLER.out.tbi),
-        reference_ch.map { it[0] },
-        reference_ch.map { it[1] },
-        reference_ch.map { it[2] }
+        reference_ch, 
+        reference_fai_ch,
+        reference_dict_ch
     )
     ch_versions = ch_versions.mix(GATK_GENOTYPEGVCFS.out.versions)
     
@@ -168,60 +172,50 @@ workflow {
     // Create input channel from samplesheet or input parameters
     //
     // Direct parameters
-    def meta = [:]
-    meta.id = params.sample ?: 'sample1'
-    
-    def reads = []
-    reads.add(file(params.fastq_r1))
-    if (params.fastq_r2) {
-        reads.add(file(params.fastq_r2))
+    Channel
+    .fromPath(params.input)
+    .splitCsv(header: true)
+    .map { row ->
+        def meta = [:] // create empty list for metadata
+        meta.id = row.sample // it map value of row as sample id, add to meta list
+        // Support both new format (with lane) and old format (without lane)
+        meta.lane = row.lane // require to have lane, for combining data later if one sample is sequenced by more than one lanes
+        def reads = [] // create empty list for files
+        reads.add(file(row.fastq_1)) // add R1 fq
+        reads.add(file(row.fastq_2)) // add R2 fq
+        return [ meta, reads ]
     }
-    
-    ch_input = Channel.of([ meta, reads ])
+    .set { ch_input }
     
     
     //
     // Prepare reference genome channel
     //
-    reference_ch = Channel.of([
-        file(params.reference),
-        file("${params.reference}.fai"),
-        file(params.reference.toString().replace('.fasta', '.dict').replace('.fa', '.dict'))
-    ])
-    
-    //
-    // Prepare BWA index files channel
-    //
-    bwa_index_ch = Channel.of([
-        file("${params.reference}.amb"),
-        file("${params.reference}.ann"),
-        file("${params.reference}.bwt"),
-        file("${params.reference}.pac"),
-        file("${params.reference}.sa")
-    ]).collect()
+    ch_reference = Channel.fromPath(params.reference).collect()
+    ch_reference_fai = Channel.fromPath(params.reference + ".fai").collect()
+    ch_reference_dict = Channel.fromPath(params.reference_dict).collect()
+    ch_bwa_index = Channel.fromPath(params.reference+ ".{amb,ann,bwt,pac,sa}").collect()
     
     //
     // Prepare known sites channels
     //
-    dbsnp_ch = Channel.of([
-        file(params.dbsnp),
-        file("${params.dbsnp}.tbi")
-    ])
-    
-    known_indels_ch = Channel.of([
-        file(params.known_indels),
-        file("${params.known_indels}.tbi")
-    ])
-    
+    dbsnp_vcf_ch       = Channel.fromPath(params.dbsnp, checkIfExists: true).collect()
+    dbsnp_tbi_ch       = Channel.fromPath(params.dbsnp_tbi, checkIfExists: true).collect()
+    known_indels_vcf_ch = Channel.fromPath(params.known_indels, checkIfExists: true).collect()
+    known_indels_tbi_ch = Channel.fromPath(params.known_indels_tbi, checkIfExists: true).collect()
     //
     // RUN WORKFLOW
     //
     GATK_VARIANT_CALLING (
         ch_input,
-        reference_ch,
-        bwa_index_ch,
-        dbsnp_ch,
-        known_indels_ch
+        ch_reference,
+        ch_reference_fai,
+        ch_reference_dict,
+        ch_bwa_index,
+        dbsnp_vcf_ch,
+        dbsnp_tbi_ch,
+        known_indels_vcf_ch,
+        known_indels_tbi_ch
     )
 }
 
