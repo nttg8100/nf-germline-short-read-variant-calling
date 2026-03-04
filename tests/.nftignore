@@ -1,3 +1,3 @@
 pipeline_info/*.{html,json,txt,yml}
 germline_variant_calling:preprocessing:fastp/*.fastq.gz
-germline_variant_calling:variant_calling/**/*.{bcf,vcf,vcf.gz,vcf.gz.tbi}
+germline_variant_calling*/*.{bcf,vcf,vcf.gz,vcf.gz.tbi}
