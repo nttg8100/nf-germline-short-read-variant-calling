@@ -1,0 +1,8 @@
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+*.gz*
+*.dict
+*.fasta
+*.fasta.fai
+*.bed
