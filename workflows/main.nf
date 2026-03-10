@@ -1,8 +1,10 @@
 // Include subworkflows
 include { ALIGNMENT } from '../subworkflows/local/alignment/main'
-include { PREPROCESSING } from '../subworkflows/local/preprocessing_alignment/main'
+include { PREPROCESSING } from '../subworkflows/local/alignment_preprocessing/main'
 include { VARIANT_CALLING } from '../subworkflows/local/variant_calling/main'
-include { ANNOTATION } from '../subworkflows/local/annotation/main'
+include { VARIANT_ANNOTATION } from '../subworkflows/local/variant_annotation/main'
+include { VARIANT_ALIGNMENT_QUALITY_CONTROL } from '../subworkflows/local/variant_alignment_quality_control/main'
+
 /*
 ========================================================================================
     NAMED WORKFLOW FOR PIPELINE
@@ -46,6 +48,21 @@ workflow GERMLINE_VARIANT_CALLING {
             }
             if (igenome_ref.known_indels_tbi) {
                 params.known_indels_tbi = igenome_ref.known_indels_tbi
+            }
+            if (igenome_ref.snpeff_cache) {
+                params.snpeff_cache = igenome_ref.snpeff_cache
+            }
+            if (igenome_ref.vep_cache_version) {
+                params.vep_cache_version = igenome_ref.vep_cache_version
+            }
+            if (igenome_ref.vep_genome) {
+                params.vep_genome = igenome_ref.vep_genome
+            }
+            if (igenome_ref.vep_species) {
+                params.vep_species = igenome_ref.vep_species
+            }
+            if (igenome_ref.vep_cache) {
+                params.vep_cache = igenome_ref.vep_cache
             }
         }
     }
@@ -122,11 +139,6 @@ workflow GERMLINE_VARIANT_CALLING {
         ch_final_bai = ALIGNMENT.out.bai
     }
    
-
-    //
-    // SUBWORKFLOW: VARIANT_CALLING (Steps 9-13)
-    // Includes: HaplotypeCaller, GenotypeGVCFs, Variant Filtering, Merging
-    //
     VARIANT_CALLING(
         params.variant_caller,
         ch_final_bam,
@@ -139,24 +151,23 @@ workflow GERMLINE_VARIANT_CALLING {
     )
     ch_versions = ch_versions.mix(VARIANT_CALLING.out.versions)
 
-    //
-    // SUBWORKFLOW: ANNOTATION (Steps 14-16)
-    // Includes: SnpEff, bcftools stats, Visualization
-    //
-    ANNOTATION(
+    VARIANT_ANNOTATION(
         VARIANT_CALLING.out.vcf,
-        VARIANT_CALLING.out.tbi,
-        PREPROCESSING.out.bam,
-        PREPROCESSING.out.bai,
-        params.snpeff_genome,
+        VARIANT_CALLING.out.vcf_tbi,
+        params.snpeff_cache,
+        params.vep_cache,
+        params.vep_cache_version,
+        params.vep_genome,
+        params.vep_species,
+        ref_fasta
     )
-    ch_versions = ch_versions.mix(ANNOTATION.out.versions)
+    // ch_versions = ch_versions.mix(VARIANT_ANNOTATION.out.versions)
 
-    emit:
-    alignment_summary = PREPROCESSING.out.alignment_summary
-    insert_metrics = PREPROCESSING.out.insert_metrics
-    final_bam = PREPROCESSING.out.bam
-    final_vcf = VARIANT_CALLING.out.vcf
-    annotated_vcf = ANNOTATION.out.annotated_vcf
-    versions = ch_versions
+
+    VARIANT_ALIGNMENT_QUALITY_CONTROL(
+        VARIANT_CALLING.out.vcf,
+        VARIANT_CALLING.out.vcf_tbi,
+        ch_final_bam,
+        ch_final_bai,
+    )
 }

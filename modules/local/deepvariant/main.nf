@@ -10,9 +10,9 @@ process DEEPVARIANT {
 
     output:
     tuple val(meta), path("${meta.id}.vcf.gz")             , emit: vcf
-    tuple val(meta), path("${meta.id}.vcf.gz.{tbi,csi}")   , emit: vcf_index
+    tuple val(meta), path("${meta.id}.vcf.gz.{tbi,csi}")   , emit: vcf_tbi
     tuple val(meta), path("${meta.id}.g.vcf.gz")           , emit: gvcf
-    tuple val(meta), path("${meta.id}.g.vcf.gz.{tbi,csi}") , emit: gvcf_index
+    tuple val(meta), path("${meta.id}.g.vcf.gz.{tbi,csi}") , emit: gvcf_tbi
     path "versions.yml"                                   , emit: versions
 
     when:

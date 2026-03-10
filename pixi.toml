@@ -9,3 +9,7 @@ platforms = ["linux-64"]
 nextflow = ">=25.10.4,<26"
 nf-test = ">=0.9.4,<0.10"
 singularity = ">=3.8.6,<4"
+ensembl-vep = ">=115.2,<116"
+samtools = ">=1.21,<2"
+picard = ">=3.4.0,<4"
+bcftools = ">=1.21,<2"
