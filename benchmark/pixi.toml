@@ -1,0 +1,12 @@
+[workspace]
+authors = ["nttg8100 <nttg8100@gmail>"]
+channels = ["conda-forge", "bioconda"]
+name = "benchmark"
+platforms = ["linux-64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+"hap.py" = ">=0.3.15,<0.4"
+rtg-tools = ">=3.13,<4"

@@ -1,0 +1,2 @@
+sample,lane,fastq_1,fastq_2
+HG002,1,/scratch/data/HG002_HiSeq30x_subsampled_R1.fastq.gz,/scratch/data/HG002_HiSeq30x_subsampled_R2.fastq.gz

@@ -1,15 +1,6 @@
 #!/usr/bin/env nextflow
 nextflow.enable.dsl = 2
 
-/*
-========================================================================================
-    GATK Variant Calling Pipeline - Complete 16-Step Nextflow Version
-========================================================================================
-    Based on the bash workflow - Full migration from Part 1
-========================================================================================
-*/
-
-
 include { GERMLINE_VARIANT_CALLING } from './workflows/main.nf'
 
 /*

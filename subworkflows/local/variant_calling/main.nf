@@ -10,6 +10,7 @@ nextflow.enable.dsl = 2
 */
 
 // Include modules
+// GATK-based variant calling
 include { GATK_HAPLOTYPECALLER } from '../../../modules/local/gatk/haplotypecaller/main'
 include { GATK_GENOTYPEGVCFS } from '../../../modules/local/gatk/genotypegvcfs/main'
 include { GATK_SELECTVARIANTS_SNP } from '../../../modules/local/gatk/selectvariants_snp/main'
@@ -18,8 +19,15 @@ include { GATK_SELECTVARIANTS_INDEL } from '../../../modules/local/gatk/selectva
 include { GATK_VARIANTFILTRATION_INDEL } from '../../../modules/local/gatk/variantfiltration_indel/main'
 include { GATK_MERGEVCFS } from '../../../modules/local/gatk/mergevcfs/main'
 
+// FreeBayes-based variant calling
+include { FREEBAYES } from '../../../modules/local/freebayes/main'
+
+// DeepVariant-based variant calling
+include { DEEPVARIANT } from '../../../modules/local/deepvariant/main'  
+
 workflow VARIANT_CALLING {
     take:
+    variant_caller // value: variant calling variant_caller (e.g. "GATK")
     bam // channel: [ val(meta), path(bam) ]
     bai // channel: [ val(meta), path(bai) ]
     ref_fasta // value: path(fasta)
@@ -31,82 +39,102 @@ workflow VARIANT_CALLING {
     main:
     ch_versions = channel.empty()
 
-    //
-    // STEP 9: Variant Calling with HaplotypeCaller (GVCF mode)
-    //
-    GATK_HAPLOTYPECALLER(
-        bam.join(bai),
-        ref_fasta,
-        ref_fai,
-        ref_dict,
-        dbsnp_vcf,
-        dbsnp_tbi,
-    )
-    ch_versions = ch_versions.mix(GATK_HAPLOTYPECALLER.out.versions)
+    if (variant_caller == "gatk"){
+         //
+        // STEP 9: Variant Calling with HaplotypeCaller (GVCF mode)
+        //
+        GATK_HAPLOTYPECALLER(
+            bam.join(bai),
+            ref_fasta,
+            ref_fai,
+            ref_dict,
+            dbsnp_vcf,
+            dbsnp_tbi,
+        )
+        ch_versions = ch_versions.mix(GATK_HAPLOTYPECALLER.out.versions)
 
-    //
-    // STEP 10: Genotype GVCFs
-    //
-    GATK_GENOTYPEGVCFS(
-        GATK_HAPLOTYPECALLER.out.gvcf.join(GATK_HAPLOTYPECALLER.out.tbi),
-        ref_fasta,
-        ref_fai,
-        ref_dict,
-    )
-    ch_versions = ch_versions.mix(GATK_GENOTYPEGVCFS.out.versions)
+        //
+        // STEP 10: Genotype GVCFs
+        //
+        GATK_GENOTYPEGVCFS(
+            GATK_HAPLOTYPECALLER.out.gvcf.join(GATK_HAPLOTYPECALLER.out.tbi),
+            ref_fasta,
+            ref_fai,
+            ref_dict,
+        )
+        ch_versions = ch_versions.mix(GATK_GENOTYPEGVCFS.out.versions)
 
-    //
-    // STEP 11: Select and Filter SNPs
-    //
-    GATK_SELECTVARIANTS_SNP(
-        GATK_GENOTYPEGVCFS.out.vcf.join(GATK_GENOTYPEGVCFS.out.tbi),
-        ref_fasta,
-        ref_fai,
-        ref_dict,
-    )
-    ch_versions = ch_versions.mix(GATK_SELECTVARIANTS_SNP.out.versions)
+        //
+        // STEP 11: Select and Filter SNPs
+        //
+        GATK_SELECTVARIANTS_SNP(
+            GATK_GENOTYPEGVCFS.out.vcf.join(GATK_GENOTYPEGVCFS.out.tbi),
+            ref_fasta,
+            ref_fai,
+            ref_dict,
+        )
+        ch_versions = ch_versions.mix(GATK_SELECTVARIANTS_SNP.out.versions)
 
-    GATK_VARIANTFILTRATION_SNP(
-        GATK_SELECTVARIANTS_SNP.out.vcf.join(GATK_SELECTVARIANTS_SNP.out.tbi),
-        ref_fasta,
-        ref_fai,
-        ref_dict,
-    )
-    ch_versions = ch_versions.mix(GATK_VARIANTFILTRATION_SNP.out.versions)
+        GATK_VARIANTFILTRATION_SNP(
+            GATK_SELECTVARIANTS_SNP.out.vcf.join(GATK_SELECTVARIANTS_SNP.out.tbi),
+            ref_fasta,
+            ref_fai,
+            ref_dict,
+        )
+        ch_versions = ch_versions.mix(GATK_VARIANTFILTRATION_SNP.out.versions)
 
-    //
-    // STEP 12: Select and Filter Indels
-    //
-    GATK_SELECTVARIANTS_INDEL(
-        GATK_GENOTYPEGVCFS.out.vcf.join(GATK_GENOTYPEGVCFS.out.tbi),
-        ref_fasta,
-        ref_fai,
-        ref_dict,
-    )
-    ch_versions = ch_versions.mix(GATK_SELECTVARIANTS_INDEL.out.versions)
+        //
+        // STEP 12: Select and Filter Indels
+        //
+        GATK_SELECTVARIANTS_INDEL(
+            GATK_GENOTYPEGVCFS.out.vcf.join(GATK_GENOTYPEGVCFS.out.tbi),
+            ref_fasta,
+            ref_fai,
+            ref_dict,
+        )
+        ch_versions = ch_versions.mix(GATK_SELECTVARIANTS_INDEL.out.versions)
 
-    GATK_VARIANTFILTRATION_INDEL(
-        GATK_SELECTVARIANTS_INDEL.out.vcf.join(GATK_SELECTVARIANTS_INDEL.out.tbi),
-        ref_fasta,
-        ref_fai,
-        ref_dict,
-    )
-    ch_versions = ch_versions.mix(GATK_VARIANTFILTRATION_INDEL.out.versions)
+        GATK_VARIANTFILTRATION_INDEL(
+            GATK_SELECTVARIANTS_INDEL.out.vcf.join(GATK_SELECTVARIANTS_INDEL.out.tbi),
+            ref_fasta,
+            ref_fai,
+            ref_dict,
+        )
+        ch_versions = ch_versions.mix(GATK_VARIANTFILTRATION_INDEL.out.versions)
 
-    //
-    // STEP 13: Merge filtered SNPs and Indels
-    //
-    GATK_MERGEVCFS(
-        GATK_VARIANTFILTRATION_SNP.out.vcf.join(GATK_VARIANTFILTRATION_SNP.out.tbi).join(GATK_VARIANTFILTRATION_INDEL.out.vcf).join(GATK_VARIANTFILTRATION_INDEL.out.tbi),
-        ref_fasta,
-        ref_fai,
-        ref_dict,
-    )
-    ch_versions = ch_versions.mix(GATK_MERGEVCFS.out.versions)
+        //
+        // STEP 13: Merge filtered SNPs and Indels
+        //
+        GATK_MERGEVCFS(
+            GATK_VARIANTFILTRATION_SNP.out.vcf.join(GATK_VARIANTFILTRATION_SNP.out.tbi).join(GATK_VARIANTFILTRATION_INDEL.out.vcf).join(GATK_VARIANTFILTRATION_INDEL.out.tbi),
+            ref_fasta,
+            ref_fai,
+            ref_dict,
+        )
+        ch_versions = ch_versions.mix(GATK_MERGEVCFS.out.versions)
+    }
+    else if (variant_caller == "freebayes") {
+        FREEBAYES(
+            bam.join(bai),
+            ref_fasta,
+            ref_fai,
+        )
+    }
+    else if (variant_caller == "deepvariant") {
+        DEEPVARIANT(
+            bam.join(bai),
+            ref_fasta,
+            ref_fai,
+        )
+    }
+    else {
+        bam.join(bai).view()
+        // error "Unsupported variant calling variant_caller: ${variant_caller}"
+    }
 
-    emit:
-    gvcf = GATK_HAPLOTYPECALLER.out.gvcf
-    vcf = GATK_MERGEVCFS.out.vcf
-    tbi = GATK_MERGEVCFS.out.tbi
-    versions = ch_versions
+    // emit:
+    // gvcf = GATK_HAPLOTYPECALLER.out.gvcf
+    // vcf = GATK_MERGEVCFS.out.vcf
+    // tbi = GATK_MERGEVCFS.out.tbi
+    // versions = ch_versions
 }

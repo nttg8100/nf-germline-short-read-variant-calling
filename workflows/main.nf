@@ -1,5 +1,6 @@
 // Include subworkflows
-include { PREPROCESSING } from '../subworkflows/local/preprocessing/main'
+include { ALIGNMENT } from '../subworkflows/local/alignment/main'
+include { PREPROCESSING } from '../subworkflows/local/preprocessing_alignment/main'
 include { VARIANT_CALLING } from '../subworkflows/local/variant_calling/main'
 include { ANNOTATION } from '../subworkflows/local/annotation/main'
 /*
@@ -81,30 +82,55 @@ workflow GERMLINE_VARIANT_CALLING {
     known_indels_tbi = channel.fromPath(params.known_indels_tbi, checkIfExists: true).collect()
 
     //
-    // SUBWORKFLOW: PREPROCESSING (Steps 1-8)
-    // Includes: FASTP, BWA-MEM2, Sorting, Merging, MarkDuplicates, BQSR, Metrics
+    // SUBWORKFLOW: PREPROCESSING (Steps 1-3)
+    // Includes: FASTP, BWA-MEM2, Sorting, Merging
     //
-    PREPROCESSING(
+    ALIGNMENT(
         reads_ch,
         ref_fasta,
         ref_fai,
         ref_dict,
         params.bwa2_index,
         params.index_bwa2_reference,
-        dbsnp_vcf,
-        dbsnp_tbi,
-        known_indels_vcf,
-        known_indels_tbi,
     )
-    ch_versions = ch_versions.mix(PREPROCESSING.out.versions)
+    ch_versions = ch_versions.mix(ALIGNMENT.out.versions)
+    //
+    // SUBWORKFLOW: PREPROCESSING (Steps 4-8)
+    // Includes: FASTP, BWA-MEM2, Sorting, Merging, MarkDuplicates, BQSR, Metrics
+    //
+    if(!params.skip_preprocessing){
+        PREPROCESSING(
+            params.preprocessor,
+            ALIGNMENT.out.bam,
+            ref_fasta,
+            ref_fai,
+            ref_dict,
+            dbsnp_vcf,
+            dbsnp_tbi,
+            known_indels_vcf,
+            known_indels_tbi,
+        )
+        
+        ch_versions = ch_versions.mix(PREPROCESSING.out.versions)
+        ch_final_bam = PREPROCESSING.out.bam
+        ch_final_bai = PREPROCESSING.out.bai
+    }
+
+   
+    else {
+        ch_final_bam = ALIGNMENT.out.bam
+        ch_final_bai = ALIGNMENT.out.bai
+    }
+   
 
     //
     // SUBWORKFLOW: VARIANT_CALLING (Steps 9-13)
     // Includes: HaplotypeCaller, GenotypeGVCFs, Variant Filtering, Merging
     //
     VARIANT_CALLING(
-        PREPROCESSING.out.bam,
-        PREPROCESSING.out.bai,
+        params.variant_caller,
+        ch_final_bam,
+        ch_final_bai,
         ref_fasta,
         ref_fai,
         ref_dict,
