@@ -1,4 +1,6 @@
 pipeline_info/*.{html,json,txt,yml}
-germline_variant_calling:preprocessing:fastp/*.{html,fastq.gz,json}
-germline_variant_calling:preprocessing:gatk_collectmetrics/*.txt
+germline_variant_calling:alignment:fastp/*.{html,fastq.gz,json}
+germline_variant_calling::gatk_collectmetrics/*.txt
 germline_variant_calling*/*.{bcf,vcf,vcf.gz,vcf.gz.tbi}
+germline_variant_calling:variant_annotation:snpeff/*.{csv,html}
+germline_variant_calling:variant_annotation:vep/*.{html}
