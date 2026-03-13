@@ -93,6 +93,15 @@ Metrics evaluated include:
 
 Benchmarking is performed within the **high-confidence regions** defined by GIAB.
 
+To benchmark nf-score/sarek and this workflow small variant calls against HG002 truth set:
+
+```bash
+cd benchmark
+pixi run --environment snpindelbench bash benchmark_snpindel_sarek.sh
+pixi run --environment snpindelbench bash benchmark_snpindel_simple_workflow.sh
+```
+
+
 ### Structural Variant (SV) Benchmarking
 
 Structural variants are benchmarked separately using **Truvari**, a specialized tool for SV comparison.

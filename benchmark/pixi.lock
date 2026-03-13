@@ -7,7 +7,7 @@ environments:
     options:
       pypi-prerelease-mode: if-necessary-or-explicit
     packages: {}
-  snvindelbench:
+  snpindelbench:
     channels:
     - url: https://conda.anaconda.org/conda-forge/
     - url: https://conda.anaconda.org/bioconda/

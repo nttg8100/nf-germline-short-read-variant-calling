@@ -3,22 +3,21 @@
 # Benchmark script for HG002 with DeepVariant, FreeBayes, HaplotypeCaller, Manta, Strelka (relative paths)
 set -euo pipefail
 
-HGREF="references/Homo_sapiens_assembly38.fasta"
+export HGREF="references/Homo_sapiens_assembly38.fasta"
 REF="HG002"
 BED="references/${REF}_GRCh38_1_22_v4.2.1_benchmark_noinconsistent.bed"
 TRUTH="references/${REF}_GRCh38_1_22_v4.2.1_benchmark.vcf.gz"
 SDF="references/grch38.sdf"
 THREADS=16
 
-RESULTSDIR="results"
+RESULTSDIR="results/sarek"
 mkdir -p "$RESULTSDIR"
 
-TOOLS=(deepvariant freebayes haplotypecaller manta strelka)
+TOOLS=(deepvariant freebayes haplotypecaller strelka)
 
 VCF_DEEPVARIANT="pipelines/sarek/variant_calling/deepvariant/HG002/HG002.deepvariant.vcf.gz"
 VCF_FREEBAYES="pipelines/sarek/variant_calling/freebayes/HG002/HG002.freebayes.vcf.gz"
 VCF_HAPLOTYPECALLER="pipelines/sarek/variant_calling/haplotypecaller/HG002/HG002.haplotypecaller.vcf.gz"
-VCF_MANTA="pipelines/sarek/variant_calling/manta/HG002/HG002.manta.diploid_sv.vcf.gz"
 VCF_STRELKA="pipelines/sarek/variant_calling/strelka/HG002/HG002.strelka.variants.vcf.gz"
 
 # Path map
@@ -26,7 +25,6 @@ declare -A VCF_PATHS=(
   [deepvariant]="$VCF_DEEPVARIANT"
   [freebayes]="$VCF_FREEBAYES"
   [haplotypecaller]="$VCF_HAPLOTYPECALLER"
-  [manta]="$VCF_MANTA"
   [strelka]="$VCF_STRELKA"
 )
 
@@ -69,7 +67,7 @@ for TOOL in "${TOOLS[@]}"; do
   echo "Completed $TOOL"
 done
 
-MERGED="$RESULTSDIR/merged_${REF}_benchmark.csv"
+MERGED="$RESULTSDIR/snpindels_merged_${REF}_benchmark.csv"
 echo "Merging summaries to $MERGED ..."
 awk '(NR == 1) || (FNR > 1)' "$RESULTSDIR"/*/*.formatted.summary.csv > "$MERGED"
 echo "All done. Results for $REF in $MERGED"

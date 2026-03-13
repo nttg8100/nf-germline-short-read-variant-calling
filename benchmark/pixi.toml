@@ -19,4 +19,4 @@ bcftools = ">=1.17"
 
 [environments]
 svbench = ["truvari"]
-snvindelbench = ["snpindel"]
+snpindelbench = ["snpindel"]

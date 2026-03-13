@@ -62,7 +62,7 @@ for TOOL in "${TOOLS[@]}"; do
   echo "Completed $TOOL"
 done
 
-MERGED="$RESULTSDIR/merged_${REF}_benchmark.csv"
+MERGED="$RESULTSDIR/snpindels_merged_${REF}_benchmark.csv"
 echo "Merging summaries to $MERGED ..."
 awk '(NR == 1) || (FNR > 1)' "$RESULTSDIR"/*/*.formatted.summary.csv > "$MERGED"
 echo "All done. Results for $REF in $MERGED"
