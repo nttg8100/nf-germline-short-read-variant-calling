@@ -2,6 +2,38 @@
 
 This repository implements a comprehensive Nextflow pipeline for germline short-read variant calling, supporting multiple variant callers (DeepVariant, GATK HaplotypeCaller, FreeBayes) with integrated quality control and annotation.
 
+## Primary Use Case
+
+**Primary support**: **30X whole-genome sequencing (WGS) Illumina short reads with GRCh38 (hg38) alignment**
+
+The pipeline is optimized for the following workflow:
+
+- **Input**: Illumina short-read FASTQ files (~30X coverage)
+- **Quality Control**: FASTP for read-level quality filtering
+- **Alignment**: BWA-MEM2 alignment to GRCh38 (hg38) reference genome
+- **Preprocessing**: Skipped by default (can be enabled if needed)
+- **Variant Calling**: **DeepVariant** (default) for high-accuracy germline variant detection
+- **Quality Reports**: 
+  - Alignment quality metrics (samtools stats, FastQC, MultiQC)
+  - Variant call quality reports
+- **Variant Annotation**: 
+  - **SnpEff** (annotation database)
+  - **VEP** (Ensembl Variant Effect Predictor)
+- **Output**: Annotated VCF files with comprehensive quality metrics
+
+### Configuration for Primary Use Case
+
+```bash
+# Default configuration uses:
+# - DeepVariant as variant caller
+# - HG38/GRCh38 reference genome
+# - FASTP quality filtering
+# - Preprocessing skipped (skip_preprocessing: true)
+# - SnpEff + VEP annotation enabled
+
+pixi run nextflow run main.nf -profile docker -resume
+```
+
 ## Pipeline Architecture
 
 ![Nextflow Germline Variant Calling Pipeline](docs/nf-germline-pipeline.png)
