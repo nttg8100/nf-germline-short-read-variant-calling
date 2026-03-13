@@ -1,8 +1,6 @@
 name: Testing e2e
 
 on:
-  push:
-    branches: [ main ]
   pull_request:
     branches: [ main ]
 

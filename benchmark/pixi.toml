@@ -7,6 +7,16 @@ version = "0.1.0"
 
 [tasks]
 
-[dependencies]
+[feature.snpindel.dependencies]
 "hap.py" = ">=0.3.15,<0.4"
 rtg-tools = ">=3.13,<4"
+
+[feature.truvari.dependencies]
+truvari = "==5.4.0"
+ucsc-liftover = ">=469,<483"
+crossmap = ">=0.7.0"
+bcftools = ">=1.17"
+
+[environments]
+svbench = ["truvari"]
+snvindelbench = ["snpindel"]
