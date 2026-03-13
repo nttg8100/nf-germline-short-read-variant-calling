@@ -2,6 +2,13 @@
 
 This repository implements a comprehensive Nextflow pipeline for germline short-read variant calling, supporting multiple variant callers (DeepVariant, GATK HaplotypeCaller, FreeBayes) with integrated quality control and annotation.
 
+## Pipeline Architecture
+
+![Nextflow Germline Variant Calling Pipeline](docs/nf-germline-pipeline.png)
+
+For a detailed breakdown of the pipeline architecture, tool versions, parameters, and usage examples, see [PIPELINE_ARCHITECTURE.md](docs/architecture.md).
+
+
 ## Primary Use Case
 
 **Primary support**: **30X whole-genome sequencing (WGS) Illumina short reads with GRCh38 (hg38) alignment**
@@ -53,12 +60,6 @@ This pipeline is specifically optimized for **SNP and small INDEL detection** us
 
 pixi run nextflow run main.nf -profile docker -resume
 ```
-
-## Pipeline Architecture
-
-![Nextflow Germline Variant Calling Pipeline](docs/nf-germline-pipeline.png)
-
-For a detailed breakdown of the pipeline architecture, tool versions, parameters, and usage examples, see [PIPELINE_ARCHITECTURE.md](docs/PIPELINE_ARCHITECTURE.md).
 
 ## Quick Start
 
